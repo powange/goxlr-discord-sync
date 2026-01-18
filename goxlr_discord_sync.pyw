@@ -1,6 +1,7 @@
 """
 GoXLR Cough Button → Discord Mute Sync
 Utilise l'API Discord RPC avec OAuth2 local (version async)
+Reconnexion automatique si Discord ou GoXLR redémarre
 """
 
 import asyncio
@@ -20,6 +21,10 @@ TOKEN_FILE = os.path.join(SCRIPT_DIR, "discord_token.json")
 # === Configuration GoXLR ===
 GOXLR_WEBSOCKET_URL = "ws://localhost:14564/api/websocket"
 REDIRECT_PORT = 9543
+
+# === Délais de reconnexion ===
+DISCORD_RETRY_DELAY = 10  # secondes
+GOXLR_RETRY_DELAY = 5     # secondes
 
 # === Variables globales ===
 discord_client_id = None
@@ -262,6 +267,53 @@ def get_access_token():
     save_token(token_data)
     return token_data['access_token']
 
+async def connect_discord():
+    """Connecte à Discord RPC avec gestion des erreurs"""
+    global discord_rpc
+    
+    # Fermer l'ancienne connexion si elle existe
+    if discord_rpc:
+        try:
+            discord_rpc.close()
+        except:
+            pass
+        discord_rpc = None
+    
+    access_token = get_access_token()
+    if not access_token:
+        return False
+    
+    try:
+        discord_rpc = DiscordClient(discord_client_id)
+        await discord_rpc.start()
+        await discord_rpc.authenticate(access_token)
+        print("✓ Connecté à Discord!")
+        return True
+    except Exception as e:
+        print(f"Erreur connexion Discord: {e}")
+        
+        # Si erreur d'auth, essayer avec un nouveau token
+        if "access token" in str(e).lower() or "authenticate" in str(e).lower():
+            print("Essai avec un nouveau token...")
+            if os.path.exists(TOKEN_FILE):
+                os.remove(TOKEN_FILE)
+            
+            access_token = get_access_token()
+            if not access_token:
+                return False
+            
+            try:
+                discord_rpc = DiscordClient(discord_client_id)
+                await discord_rpc.start()
+                await discord_rpc.authenticate(access_token)
+                print("✓ Connecté à Discord!")
+                return True
+            except Exception as e2:
+                print(f"Erreur: {e2}")
+                return False
+        
+        return False
+
 async def sync_mute_state(goxlr_muted):
     """Synchronise l'état avec Discord"""
     global is_muted, discord_rpc
@@ -271,51 +323,60 @@ async def sync_mute_state(goxlr_muted):
         await discord_rpc.set_voice_settings(mute=is_muted)
         status = "🔇 Muted" if is_muted else "🔊 Unmuted"
         print(f"  → Discord: {status}")
+        return True
         
     except Exception as e:
         print(f"  → Erreur Discord: {e}")
+        return False
 
-async def main_loop():
-    """Boucle principale async"""
-    global discord_rpc
-    
-    # Obtenir le token
-    access_token = get_access_token()
-    if not access_token:
-        print("Impossible d'obtenir un token Discord.")
-        return
-    
-    # Connexion Discord RPC
-    print("Connexion à Discord RPC...")
-    discord_rpc = DiscordClient(discord_client_id)
-    await discord_rpc.start()
-    
-    try:
-        await discord_rpc.authenticate(access_token)
-        print("✓ Authentifié avec Discord!")
-    except Exception as e:
-        print(f"Erreur d'authentification: {e}")
-        print("Essai avec un nouveau token...")
-        
-        # Supprimer l'ancien token et réessayer
-        if os.path.exists(TOKEN_FILE):
-            os.remove(TOKEN_FILE)
-        
-        access_token = get_access_token()
-        if not access_token:
-            print("Impossible d'obtenir un token Discord.")
-            return
-        
-        await discord_rpc.authenticate(access_token)
-        print("✓ Authentifié avec Discord!")
-    
-    # Connexion GoXLR
-    print()
-    print("Connexion à GoXLR Utility...")
-    
-    last_cough_state = None
+async def wait_for_goxlr():
+    """Attend que GoXLR Utility soit disponible"""
+    print("En attente de GoXLR Utility...")
     
     while True:
+        try:
+            async with websockets.connect(GOXLR_WEBSOCKET_URL) as ws:
+                # Test de connexion réussi
+                return True
+        except Exception:
+            pass
+        
+        await asyncio.sleep(GOXLR_RETRY_DELAY)
+
+async def wait_for_discord():
+    """Attend que Discord soit disponible et connecte"""
+    print("En attente de Discord...")
+    
+    while True:
+        if await connect_discord():
+            return True
+        
+        print(f"Discord non disponible. Nouvelle tentative dans {DISCORD_RETRY_DELAY}s...")
+        await asyncio.sleep(DISCORD_RETRY_DELAY)
+
+async def main_loop():
+    """Boucle principale avec reconnexion automatique"""
+    global discord_rpc
+    
+    last_cough_state = None
+    discord_connected = False
+    
+    while True:
+        # Attendre Discord si pas connecté
+        if not discord_connected:
+            print()
+            print("Connexion à Discord RPC...")
+            discord_connected = await connect_discord()
+            
+            if not discord_connected:
+                print(f"Discord non disponible. Nouvelle tentative dans {DISCORD_RETRY_DELAY}s...")
+                await asyncio.sleep(DISCORD_RETRY_DELAY)
+                continue
+        
+        # Connexion à GoXLR
+        print()
+        print("Connexion à GoXLR Utility...")
+        
         try:
             async with websockets.connect(GOXLR_WEBSOCKET_URL) as ws:
                 print("✓ Connecté à GoXLR Utility")
@@ -338,7 +399,9 @@ async def main_loop():
                                 
                                 # Synchroniser l'état initial
                                 if last_cough_state and last_cough_state != "Unmuted":
-                                    await sync_mute_state(True)
+                                    success = await sync_mute_state(True)
+                                    if not success:
+                                        discord_connected = False
                                 break
                 
                 print()
@@ -364,7 +427,26 @@ async def main_loop():
                                     
                                     # Synchroniser avec Discord
                                     goxlr_muted = (new_state != "Unmuted")
-                                    await sync_mute_state(goxlr_muted)
+                                    success = await sync_mute_state(goxlr_muted)
+                                    
+                                    if not success:
+                                        # Discord déconnecté, on va se reconnecter
+                                        discord_connected = False
+                                        print("Discord déconnecté. Reconnexion...")
+                                        
+                                        # Fermer proprement
+                                        try:
+                                            discord_rpc.close()
+                                        except:
+                                            pass
+                                        
+                                        # Attendre et reconnecter
+                                        await asyncio.sleep(2)
+                                        discord_connected = await connect_discord()
+                                        
+                                        if discord_connected:
+                                            # Resync l'état
+                                            await sync_mute_state(goxlr_muted)
                                     
                                     last_cough_state = new_state
                                     
@@ -372,9 +454,16 @@ async def main_loop():
             print("Arrêt demandé.")
             break
         except Exception as e:
-            print(f"Connexion GoXLR perdue: {e}")
-            print("Reconnexion dans 5 secondes...")
-            await asyncio.sleep(5)
+            error_msg = str(e)
+            
+            # Différencier les types d'erreurs
+            if "ConnectionRefusedError" in error_msg or "Connect call failed" in error_msg or "connection" in error_msg.lower():
+                print(f"GoXLR Utility non disponible. Nouvelle tentative dans {GOXLR_RETRY_DELAY}s...")
+            else:
+                print(f"Connexion GoXLR perdue: {e}")
+                print(f"Reconnexion dans {GOXLR_RETRY_DELAY}s...")
+            
+            await asyncio.sleep(GOXLR_RETRY_DELAY)
 
 def main():
     print("=" * 50)
