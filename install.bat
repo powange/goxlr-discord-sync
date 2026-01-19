@@ -1,30 +1,30 @@
 @echo off
-echo === Installation GoXLR Discord Sync ===
+echo === GoXLR Discord Sync Installation ===
 echo.
 
-:: Installer les dépendances
-echo Installation des modules Python...
+:: Install dependencies
+echo Installing Python modules...
 pip install websockets
 pip install pypresence
 pip install requests
 echo.
 
-:: Créer le raccourci dans le dossier Startup
-echo Creation du lancement automatique...
+:: Create shortcut in Startup folder
+echo Setting up auto-start...
 set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "SCRIPT_PATH=%~dp0goxlr_discord_sync.pyw"
 
-:: Créer un fichier VBS pour lancer le script sans fenêtre
+:: Create VBS file to launch script without window
 echo Set WshShell = CreateObject("WScript.Shell") > "%STARTUP%\GoXLR_Discord_Sync.vbs"
 echo WshShell.Run "pythonw ""%SCRIPT_PATH%""", 0, False >> "%STARTUP%\GoXLR_Discord_Sync.vbs"
 
 echo.
-echo === Installation terminee ===
+echo === Installation complete ===
 echo.
-echo Le script se lancera automatiquement au demarrage de Windows.
+echo The script will start automatically when Windows boots.
 echo.
-echo IMPORTANT: Avant le premier lancement automatique,
-echo lance le script manuellement une fois pour configurer Discord:
+echo IMPORTANT: Before the first automatic launch,
+echo run the script manually once to configure Discord:
 echo   python goxlr_discord_sync.pyw
 echo.
 pause

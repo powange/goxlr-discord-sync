@@ -1,78 +1,78 @@
 # GoXLR Discord Sync
 
-Synchronise le bouton Cough de ta GoXLR avec le mute de Discord via l'API RPC.
+Sync your GoXLR's Cough button with Discord mute via the RPC API.
 
-Quand tu appuies sur le bouton Cough de ta GoXLR, Discord se mute/démute automatiquement !
+When you press the Cough button on your GoXLR, Discord automatically mutes/unmutes!
 
-## Prérequis
+## Requirements
 
 - **Windows**
-- **[GoXLR Utility](https://github.com/GoXLR-on-Linux/goxlr-utility)** installé et lancé
-- **Discord** (application Windows) lancé
-- **Python 3.x** avec pip
+- **[GoXLR Utility](https://github.com/GoXLR-on-Linux/goxlr-utility)** installed and running
+- **Discord** (Windows app) running
+- **Python 3.x** with pip
 
 ## Installation
 
-1. Clone ou télécharge ce repo dans un dossier permanent :
+1. Clone or download this repo to a permanent folder:
    ```
-   git clone https://github.com/ton-username/goxlr-discord-sync.git
+   git clone https://github.com/your-username/goxlr-discord-sync.git
    cd goxlr-discord-sync
    ```
 
-2. Lance `install.bat` pour installer les dépendances et configurer le démarrage automatique
+2. Run `install.bat` to install dependencies and configure auto-start
 
-   Ou installe manuellement :
+   Or install manually:
    ```
    pip install -r requirements.txt
    ```
 
-3. Lance le script une première fois :
+3. Run the script for the first time:
    ```
    python goxlr_discord_sync.pyw
    ```
 
-## Première configuration
+## First Time Setup
 
-Le script te guidera pour créer une application Discord :
+The script will guide you to create a Discord application:
 
-1. Va sur https://discord.com/developers/applications
-2. Clique sur **"New Application"** et donne-lui un nom
-3. Copie le **Application ID** (Client ID)
-4. Va dans **OAuth2** et copie le **Client Secret**
-5. Dans **OAuth2 > Redirects**, ajoute : `http://127.0.0.1:9543/callback`
-6. Sauvegarde
+1. Go to https://discord.com/developers/applications
+2. Click **"New Application"** and give it a name
+3. Copy the **Application ID** (Client ID)
+4. Go to **OAuth2** and copy the **Client Secret**
+5. In **OAuth2 > Redirects**, add: `http://127.0.0.1:9543/callback`
+6. Save
 
-Le script te demandera ensuite de coller le Client ID et le Client Secret.
+The script will then ask you to paste the Client ID and Client Secret.
 
-## Fichiers créés
+## Created Files
 
-- `client_id.txt` : Ton Client ID Discord
-- `client_secret.txt` : Ton Client Secret Discord (ne pas partager !)
-- `discord_token.json` : Token d'accès Discord (renouvelé automatiquement)
+- `client_id.txt`: Your Discord Client ID
+- `client_secret.txt`: Your Discord Client Secret (do not share!)
+- `discord_token.json`: Discord access token (automatically renewed)
 
-## Utilisation
+## Usage
 
-Une fois configuré, le script :
-- Se lance automatiquement au démarrage de Windows
-- Écoute le bouton **Cough** de ta GoXLR
-- Mute/démute Discord quand tu appuies dessus
+Once configured, the script:
+- Starts automatically when Windows boots
+- Listens to the **Cough** button on your GoXLR
+- Mutes/unmutes Discord when you press it
 
-## Dépannage
+## Troubleshooting
 
-**Le script ne se connecte pas à GoXLR ?**
-- Vérifie que GoXLR Utility est lancé
+**Script can't connect to GoXLR?**
+- Make sure GoXLR Utility is running
 
-**Le script ne se connecte pas à Discord ?**
-- Vérifie que Discord est lancé
-- Supprime `discord_token.json` et relance pour ré-autoriser
+**Script can't connect to Discord?**
+- Make sure Discord is running
+- Delete `discord_token.json` and restart to re-authorize
 
-**Erreur d'authentification ?**
-- Vérifie que le Redirect URI est bien configuré dans Discord
-- Supprime `client_id.txt`, `client_secret.txt` et `discord_token.json` puis relance
+**Authentication error?**
+- Make sure the Redirect URI is properly configured in Discord
+- Delete `client_id.txt`, `client_secret.txt` and `discord_token.json` then restart
 
-## Désinstallation
+## Uninstall
 
-Supprime le fichier dans le dossier Startup :
+Delete the file in the Startup folder:
 ```
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\GoXLR_Discord_Sync.vbs
 ```

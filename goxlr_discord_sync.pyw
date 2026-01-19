@@ -1,7 +1,7 @@
 """
 GoXLR Cough Button → Discord Mute Sync
-Utilise l'API Discord RPC avec OAuth2 local (version async)
-Reconnexion automatique si Discord ou GoXLR redémarre
+Uses Discord RPC API with local OAuth2 (async version)
+Auto-reconnects if Discord or GoXLR restarts
 """
 
 import asyncio
@@ -12,21 +12,21 @@ import webbrowser
 import urllib.parse
 import http.server
 
-# === Fichiers de configuration ===
+# === Configuration files ===
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CLIENT_ID_FILE = os.path.join(SCRIPT_DIR, "client_id.txt")
 SECRET_FILE = os.path.join(SCRIPT_DIR, "client_secret.txt")
 TOKEN_FILE = os.path.join(SCRIPT_DIR, "discord_token.json")
 
-# === Configuration GoXLR ===
+# === GoXLR Configuration ===
 GOXLR_WEBSOCKET_URL = "ws://localhost:14564/api/websocket"
 REDIRECT_PORT = 9543
 
-# === Délais de reconnexion ===
-DISCORD_RETRY_DELAY = 10  # secondes
-GOXLR_RETRY_DELAY = 5     # secondes
+# === Reconnection delays ===
+DISCORD_RETRY_DELAY = 10  # seconds
+GOXLR_RETRY_DELAY = 5     # seconds
 
-# === Variables globales ===
+# === Global variables ===
 discord_client_id = None
 client_secret = None
 discord_rpc = None
@@ -36,31 +36,31 @@ is_muted = False
 try:
     from pypresence import AioClient as DiscordClient
 except ImportError:
-    print("ERREUR: Module 'pypresence' manquant.")
-    print("Installez-le avec: pip install pypresence")
+    print("ERROR: Module 'pypresence' missing.")
+    print("Install it with: pip install pypresence")
     sys.exit(1)
 
 try:
     import requests
 except ImportError:
-    print("ERREUR: Module 'requests' manquant.")
-    print("Installez-le avec: pip install requests")
+    print("ERROR: Module 'requests' missing.")
+    print("Install it with: pip install requests")
     sys.exit(1)
 
 try:
     import websockets
 except ImportError:
-    print("ERREUR: Module 'websockets' manquant.")
-    print("Installez-le avec: pip install websockets")
+    print("ERROR: Module 'websockets' missing.")
+    print("Install it with: pip install websockets")
     sys.exit(1)
 
 def save_token(token_data):
-    """Sauvegarde le token pour les prochaines sessions"""
+    """Save token for future sessions"""
     with open(TOKEN_FILE, 'w') as f:
         json.dump(token_data, f)
 
 def load_token():
-    """Charge le token sauvegardé"""
+    """Load saved token"""
     try:
         with open(TOKEN_FILE, 'r') as f:
             return json.load(f)
@@ -71,7 +71,7 @@ def get_redirect_uri():
     return f"http://127.0.0.1:{REDIRECT_PORT}/callback"
 
 def exchange_code_for_token(code):
-    """Échange le code d'autorisation contre un access token"""
+    """Exchange authorization code for access token"""
     data = {
         'client_id': discord_client_id,
         'client_secret': client_secret,
@@ -89,11 +89,11 @@ def exchange_code_for_token(code):
     if response.status_code == 200:
         return response.json()
     else:
-        print(f"Erreur token exchange: {response.status_code} - {response.text}")
+        print(f"Token exchange error: {response.status_code} - {response.text}")
         return None
 
 def refresh_access_token(refresh_tok):
-    """Rafraîchit un access token expiré"""
+    """Refresh an expired access token"""
     data = {
         'client_id': discord_client_id,
         'client_secret': client_secret,
@@ -113,7 +113,7 @@ def refresh_access_token(refresh_tok):
         return None
 
 class OAuthHandler(http.server.BaseHTTPRequestHandler):
-    """Handler pour recevoir le callback OAuth"""
+    """Handler to receive OAuth callback"""
     auth_code = None
     
     def do_GET(self):
@@ -128,8 +128,8 @@ class OAuthHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"""
                 <html><body style="font-family: Arial; text-align: center; padding-top: 50px;">
-                <h1>Autorisation reussie!</h1>
-                <p>Tu peux fermer cette fenetre et retourner au script.</p>
+                <h1>Authorization successful!</h1>
+                <p>You can close this window and return to the script.</p>
                 </body></html>
                 """)
             else:
@@ -140,16 +140,16 @@ class OAuthHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
     
     def log_message(self, format, *args):
-        pass  # Silence les logs
+        pass  # Silence logs
 
 def get_authorization_code():
-    """Ouvre le navigateur pour l'autorisation et récupère le code"""
+    """Open browser for authorization and get the code"""
     
-    # Démarrer un serveur HTTP local temporaire
+    # Start a temporary local HTTP server
     server = http.server.HTTPServer(('127.0.0.1', REDIRECT_PORT), OAuthHandler)
     server.timeout = 120  # 2 minutes timeout
     
-    # Construire l'URL d'autorisation
+    # Build authorization URL
     scopes = "identify rpc rpc.voice.read rpc.voice.write"
     auth_url = (
         f"https://discord.com/api/oauth2/authorize"
@@ -159,12 +159,12 @@ def get_authorization_code():
         f"&scope={urllib.parse.quote(scopes)}"
     )
     
-    print("Ouverture du navigateur pour l'autorisation Discord...")
+    print("Opening browser for Discord authorization...")
     webbrowser.open(auth_url)
     
-    print("En attente de l'autorisation...")
+    print("Waiting for authorization...")
     
-    # Attendre le callback
+    # Wait for callback
     OAuthHandler.auth_code = None
     while OAuthHandler.auth_code is None:
         server.handle_request()
@@ -173,19 +173,19 @@ def get_authorization_code():
     return OAuthHandler.auth_code
 
 def first_time_setup():
-    """Configuration initiale - demande Client ID et Secret"""
+    """Initial setup - ask for Client ID and Secret"""
     global discord_client_id, client_secret
     
     need_setup = False
     
-    # Vérifier si le Client ID existe
+    # Check if Client ID exists
     if os.path.exists(CLIENT_ID_FILE):
         with open(CLIENT_ID_FILE, 'r') as f:
             discord_client_id = f.read().strip()
     else:
         need_setup = True
     
-    # Vérifier si le Client Secret existe
+    # Check if Client Secret exists
     if os.path.exists(SECRET_FILE):
         with open(SECRET_FILE, 'r') as f:
             client_secret = f.read().strip()
@@ -195,83 +195,83 @@ def first_time_setup():
     if not need_setup:
         return True
     
-    # Première configuration
+    # First time setup
     print("=" * 50)
-    print("PREMIERE CONFIGURATION")
+    print("FIRST TIME SETUP")
     print("=" * 50)
     print()
-    print("Tu dois creer une application Discord:")
+    print("You need to create a Discord application:")
     print()
-    print("1. Va sur https://discord.com/developers/applications")
-    print("2. Clique sur 'New Application' et donne-lui un nom")
-    print("3. Copie le 'Application ID' (Client ID)")
-    print("4. Va dans 'OAuth2' et copie le 'Client Secret'")
-    print("5. Dans 'OAuth2 > Redirects', ajoute:")
+    print("1. Go to https://discord.com/developers/applications")
+    print("2. Click 'New Application' and give it a name")
+    print("3. Copy the 'Application ID' (Client ID)")
+    print("4. Go to 'OAuth2' and copy the 'Client Secret'")
+    print("5. In 'OAuth2 > Redirects', add:")
     print(f"   {get_redirect_uri()}")
-    print("6. Sauvegarde les changements")
+    print("6. Save the changes")
     print()
     print("=" * 50)
     print()
     
-    # Demander le Client ID
+    # Ask for Client ID
     if not discord_client_id:
-        discord_client_id = input("Colle le Client ID ici: ").strip()
+        discord_client_id = input("Paste the Client ID here: ").strip()
         if not discord_client_id:
-            print("Client ID requis!")
+            print("Client ID required!")
             return False
         with open(CLIENT_ID_FILE, 'w') as f:
             f.write(discord_client_id)
-        print("Client ID sauvegardé.")
+        print("Client ID saved.")
     
-    # Demander le Client Secret
+    # Ask for Client Secret
     if not client_secret:
-        client_secret = input("Colle le Client Secret ici: ").strip()
+        client_secret = input("Paste the Client Secret here: ").strip()
         if not client_secret:
-            print("Client Secret requis!")
+            print("Client Secret required!")
             return False
         with open(SECRET_FILE, 'w') as f:
             f.write(client_secret)
-        print("Client Secret sauvegardé.")
+        print("Client Secret saved.")
     
     print()
     return True
 
 def get_access_token():
-    """Obtient un access token valide"""
+    """Get a valid access token"""
     
-    # Essayer de réutiliser un token existant
+    # Try to reuse existing token
     token_data = load_token()
     if token_data and 'access_token' in token_data:
-        # Vérifier si on peut rafraîchir
+        # Try to refresh
         if 'refresh_token' in token_data:
             new_token_data = refresh_access_token(token_data['refresh_token'])
             if new_token_data:
                 save_token(new_token_data)
                 return new_token_data['access_token']
     
-    # Sinon, nouvelle autorisation
+    # Otherwise, new authorization
     print()
     code = get_authorization_code()
     
     if not code:
-        print("Pas de code d'autorisation reçu.")
+        print("No authorization code received.")
         return None
     
-    print("Échange du code contre un token...")
+    print("Exchanging code for token...")
     token_data = exchange_code_for_token(code)
     
     if not token_data or 'access_token' not in token_data:
-        print("Impossible d'obtenir le token.")
+        print("Unable to get token.")
         return None
     
     save_token(token_data)
     return token_data['access_token']
 
 async def connect_discord():
-    """Connecte à Discord RPC avec gestion des erreurs"""
+    """Connect to Discord RPC with error handling"""
     global discord_rpc
     
-    # Fermer l'ancienne connexion si elle existe
+    # Close old connection if exists
     if discord_rpc:
         try:
             discord_rpc.close()
@@ -287,14 +287,14 @@ async def connect_discord():
         discord_rpc = DiscordClient(discord_client_id)
         await discord_rpc.start()
         await discord_rpc.authenticate(access_token)
-        print("✓ Connecté à Discord!")
+        print("✓ Connected to Discord!")
         return True
     except Exception as e:
-        print(f"Erreur connexion Discord: {e}")
+        print(f"Discord connection error: {e}")
         
-        # Si erreur d'auth, essayer avec un nouveau token
+        # If auth error, try with new token
         if "access token" in str(e).lower() or "authenticate" in str(e).lower():
-            print("Essai avec un nouveau token...")
+            print("Trying with new token...")
             if os.path.exists(TOKEN_FILE):
                 os.remove(TOKEN_FILE)
             
@@ -306,16 +306,16 @@ async def connect_discord():
                 discord_rpc = DiscordClient(discord_client_id)
                 await discord_rpc.start()
                 await discord_rpc.authenticate(access_token)
-                print("✓ Connecté à Discord!")
+                print("✓ Connected to Discord!")
                 return True
             except Exception as e2:
-                print(f"Erreur: {e2}")
+                print(f"Error: {e2}")
                 return False
         
         return False
 
 async def sync_mute_state(goxlr_muted):
-    """Synchronise l'état avec Discord"""
+    """Sync state with Discord"""
     global is_muted, discord_rpc
     
     try:
@@ -326,17 +326,17 @@ async def sync_mute_state(goxlr_muted):
         return True
         
     except Exception as e:
-        print(f"  → Erreur Discord: {e}")
+        print(f"  → Discord error: {e}")
         return False
 
 async def wait_for_goxlr():
-    """Attend que GoXLR Utility soit disponible"""
-    print("En attente de GoXLR Utility...")
+    """Wait for GoXLR Utility to be available"""
+    print("Waiting for GoXLR Utility...")
     
     while True:
         try:
             async with websockets.connect(GOXLR_WEBSOCKET_URL) as ws:
-                # Test de connexion réussi
+                # Connection test successful
                 return True
         except Exception:
             pass
@@ -344,60 +344,60 @@ async def wait_for_goxlr():
         await asyncio.sleep(GOXLR_RETRY_DELAY)
 
 async def wait_for_discord():
-    """Attend que Discord soit disponible et connecte"""
-    print("En attente de Discord...")
+    """Wait for Discord to be available and connect"""
+    print("Waiting for Discord...")
     
     while True:
         if await connect_discord():
             return True
         
-        print(f"Discord non disponible. Nouvelle tentative dans {DISCORD_RETRY_DELAY}s...")
+        print(f"Discord not available. Retrying in {DISCORD_RETRY_DELAY}s...")
         await asyncio.sleep(DISCORD_RETRY_DELAY)
 
 async def main_loop():
-    """Boucle principale avec reconnexion automatique"""
+    """Main loop with auto-reconnect"""
     global discord_rpc
     
     last_cough_state = None
     discord_connected = False
     
     while True:
-        # Attendre Discord si pas connecté
+        # Wait for Discord if not connected
         if not discord_connected:
             print()
-            print("Connexion à Discord RPC...")
+            print("Connecting to Discord RPC...")
             discord_connected = await connect_discord()
             
             if not discord_connected:
-                print(f"Discord non disponible. Nouvelle tentative dans {DISCORD_RETRY_DELAY}s...")
+                print(f"Discord not available. Retrying in {DISCORD_RETRY_DELAY}s...")
                 await asyncio.sleep(DISCORD_RETRY_DELAY)
                 continue
         
-        # Connexion à GoXLR
+        # Connect to GoXLR
         print()
-        print("Connexion à GoXLR Utility...")
+        print("Connecting to GoXLR Utility...")
         
         try:
             async with websockets.connect(GOXLR_WEBSOCKET_URL) as ws:
-                print("✓ Connecté à GoXLR Utility")
+                print("✓ Connected to GoXLR Utility")
                 
-                # Récupérer l'état initial
+                # Get initial state
                 request = {"id": 1, "data": "GetStatus"}
                 await ws.send(json.dumps(request))
                 
                 response = await ws.recv()
                 result = json.loads(response)
                 
-                # Trouver l'état initial du Cough
+                # Find initial Cough state
                 if "data" in result and "Status" in result["data"]:
                     status = result["data"]["Status"]
                     if "mixers" in status:
                         for serial, mixer in status["mixers"].items():
                             if "cough_button" in mixer:
                                 last_cough_state = mixer["cough_button"].get("state")
-                                print(f"État initial du Cough: {last_cough_state}")
+                                print(f"Initial Cough state: {last_cough_state}")
                                 
-                                # Synchroniser l'état initial
+                                # Sync initial state
                                 if last_cough_state and last_cough_state != "Unmuted":
                                     success = await sync_mute_state(True)
                                     if not success:
@@ -406,11 +406,11 @@ async def main_loop():
                 
                 print()
                 print("=" * 50)
-                print("  EN ÉCOUTE - Appuie sur Cough pour muter Discord")
+                print("  LISTENING - Press Cough to mute Discord")
                 print("=" * 50)
                 print()
                 
-                # Écouter les patches en temps réel
+                # Listen for real-time patches
                 while True:
                     message = await ws.recv()
                     data = json.loads(message)
@@ -425,43 +425,43 @@ async def main_loop():
                                 if new_state is not None and new_state != last_cough_state:
                                     print(f"Cough: {last_cough_state} → {new_state}")
                                     
-                                    # Synchroniser avec Discord
+                                    # Sync with Discord
                                     goxlr_muted = (new_state != "Unmuted")
                                     success = await sync_mute_state(goxlr_muted)
                                     
                                     if not success:
-                                        # Discord déconnecté, on va se reconnecter
+                                        # Discord disconnected, reconnect
                                         discord_connected = False
-                                        print("Discord déconnecté. Reconnexion...")
+                                        print("Discord disconnected. Reconnecting...")
                                         
-                                        # Fermer proprement
+                                        # Close properly
                                         try:
                                             discord_rpc.close()
                                         except:
                                             pass
                                         
-                                        # Attendre et reconnecter
+                                        # Wait and reconnect
                                         await asyncio.sleep(2)
                                         discord_connected = await connect_discord()
                                         
                                         if discord_connected:
-                                            # Resync l'état
+                                            # Resync state
                                             await sync_mute_state(goxlr_muted)
                                     
                                     last_cough_state = new_state
                                     
         except asyncio.CancelledError:
-            print("Arrêt demandé.")
+            print("Shutdown requested.")
             break
         except Exception as e:
             error_msg = str(e)
             
-            # Différencier les types d'erreurs
+            # Differentiate error types
             if "ConnectionRefusedError" in error_msg or "Connect call failed" in error_msg or "connection" in error_msg.lower():
-                print(f"GoXLR Utility non disponible. Nouvelle tentative dans {GOXLR_RETRY_DELAY}s...")
+                print(f"GoXLR Utility not available. Retrying in {GOXLR_RETRY_DELAY}s...")
             else:
-                print(f"Connexion GoXLR perdue: {e}")
-                print(f"Reconnexion dans {GOXLR_RETRY_DELAY}s...")
+                print(f"GoXLR connection lost: {e}")
+                print(f"Reconnecting in {GOXLR_RETRY_DELAY}s...")
             
             await asyncio.sleep(GOXLR_RETRY_DELAY)
 
@@ -471,14 +471,14 @@ def main():
     print("=" * 50)
     print()
     
-    # Configuration initiale
+    # Initial setup
     if not first_time_setup():
         sys.exit(1)
     
     try:
         asyncio.run(main_loop())
     except KeyboardInterrupt:
-        print("\nArrêt du script.")
+        print("\nScript stopped.")
 
 if __name__ == "__main__":
     main()
