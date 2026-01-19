@@ -24,9 +24,6 @@ if getattr(sys, 'frozen', False):
     autostart_vbs = os.path.join(startup_folder, 'GoXLR_Discord_Sync.vbs')
     APP_ALREADY_INSTALLED = os.path.exists(autostart_vbs)
 
-    print(f"DEBUG: SCRIPT_DIR = {SCRIPT_DIR}")
-    print(f"DEBUG: autostart_vbs = {autostart_vbs}")
-    print(f"DEBUG: APP_ALREADY_INSTALLED = {APP_ALREADY_INSTALLED}")
 
     # Store bundled file paths for later extraction (after directory is chosen)
     BUNDLED_EXE_PATH = os.path.join(sys._MEIPASS, 'GoXLR_Discord_Sync.exe')
@@ -166,7 +163,6 @@ class SetupWizard:
         ).pack(pady=10)
 
         # Check if already installed (using the flag set at startup)
-        print(f"DEBUG in step_welcome: APP_ALREADY_INSTALLED = {APP_ALREADY_INSTALLED}")
         if APP_ALREADY_INSTALLED:
             ttk.Label(
                 self.content_frame,
@@ -288,9 +284,17 @@ This wizard will:
                     messagebox.showerror("Error", f"Could not extract executable:\n{e}")
                     return
             else:
+                # Critical error: exe not bundled or not found
+                error_msg = (
+                    "ERROR: GoXLR_Discord_Sync.exe not found in setup bundle!\n\n"
+                    "This setup appears to be corrupted or was not built correctly.\n\n"
+                    "Please download a fresh copy from:\n"
+                    "https://github.com/powange/goxlr-discord-sync/releases"
+                )
                 print(f"DEBUG: BUNDLED_EXE_PATH = {BUNDLED_EXE_PATH}")
                 print(f"DEBUG: exists = {os.path.exists(BUNDLED_EXE_PATH) if BUNDLED_EXE_PATH else 'N/A'}")
-                messagebox.showwarning("Warning", f"GoXLR_Discord_Sync.exe not found in setup bundle.\n\nBUNDLED_EXE_PATH={BUNDLED_EXE_PATH}\nexists={os.path.exists(BUNDLED_EXE_PATH) if BUNDLED_EXE_PATH else 'N/A'}")
+                messagebox.showerror("Setup Error", error_msg)
+                return
 
             if BUNDLED_REQ_PATH and os.path.exists(BUNDLED_REQ_PATH):
                 try:
@@ -301,30 +305,11 @@ This wizard will:
                 except Exception as e:
                     print(f"Warning: Could not extract requirements.txt: {e}")
 
-            if extracted_files:
-                print(f"Successfully extracted: {', '.join(extracted_files)}")
-
             self.next_step()
 
-        # Remove default next button and add custom one
-        for widget in self.nav_frame.winfo_children():
-            widget.destroy()
-
-        # Recreate navigation buttons with custom next handler
-        self.back_btn = ttk.Button(
-            self.nav_frame,
-            text="← Back",
-            command=self.prev_step,
-            state=tk.NORMAL if self.current_step > 0 else tk.DISABLED
-        )
-        self.back_btn.pack(side=tk.LEFT)
-
-        self.next_btn = ttk.Button(
-            self.nav_frame,
-            text="Next",
-            command=on_next
-        )
-        self.next_btn.pack(side=tk.RIGHT)
+        # Override the next button command (don't destroy/recreate, just change command)
+        # This needs to be done AFTER show_step() returns, so we schedule it
+        self.root.after(10, lambda: self.next_btn.config(command=on_next))
 
     # Step 3: Install dependencies
     def step_install_dependencies(self):
@@ -772,23 +757,20 @@ This wizard will:
 
         ttk.Label(
             self.content_frame,
-            text="This will create a shortcut in the Windows Startup folder.",
+            text="This will create a shortcut in the Windows Startup folder.\n\nClick 'Next' to continue.",
             font=("Arial", 9),
-            foreground="gray"
-        ).pack()
+            foreground="gray",
+            justify=tk.CENTER
+        ).pack(pady=20)
 
-        ttk.Button(
-            self.content_frame,
-            text="Apply Auto-Start Settings",
-            command=self.setup_autostart
-        ).pack(pady=30)
+        # Apply auto-start when clicking Next
+        def on_next_autostart():
+            self.setup_autostart()
+            if hasattr(self, '_autostart_success') and self._autostart_success:
+                self.next_step()
 
-        self.autostart_status = ttk.Label(
-            self.content_frame,
-            text="",
-            font=("Arial", 10)
-        )
-        self.autostart_status.pack()
+        # Override next button
+        self.root.after(10, lambda: self.next_btn.config(command=on_next_autostart))
 
     def setup_autostart(self):
         startup_folder = os.path.join(
@@ -814,22 +796,17 @@ This wizard will:
                     else:
                         f.write(f'WshShell.Run "pythonw ""{script_path}""", 0, False\n')
 
-                self.autostart_status.config(
-                    text="✓ Auto-start enabled!",
-                    foreground="green"
-                )
+                print("✓ Auto-start enabled!")
             else:
                 # Remove auto-start
                 if os.path.exists(vbs_path):
                     os.remove(vbs_path)
 
-                self.autostart_status.config(
-                    text="✓ Auto-start disabled!",
-                    foreground="orange"
-                )
+                print("✓ Auto-start disabled!")
 
-            messagebox.showinfo("Success", "Auto-start configuration applied!")
+            self._autostart_success = True
         except Exception as e:
+            self._autostart_success = False
             messagebox.showerror("Error", f"Failed to configure auto-start: {e}")
 
     # Step 6: Complete
@@ -875,13 +852,16 @@ You can quit the application by right-clicking the tray icon and selecting "Quit
 
     def launch_app(self):
         try:
-            exe_path = os.path.join(SCRIPT_DIR, "GoXLR_Discord_Sync.exe")
+            # Use install_dir instead of SCRIPT_DIR
+            exe_path = os.path.join(self.install_dir, "GoXLR_Discord_Sync.exe")
             if os.path.exists(exe_path):
-                subprocess.Popen([exe_path], cwd=SCRIPT_DIR)
+                subprocess.Popen([exe_path], cwd=self.install_dir)
             else:
+                # Fallback to script mode
+                script_path = os.path.join(self.install_dir, "goxlr_discord_sync.pyw")
                 subprocess.Popen(
-                    [sys.executable, "goxlr_discord_sync.pyw"],
-                    cwd=SCRIPT_DIR
+                    [sys.executable, script_path],
+                    cwd=self.install_dir
                 )
 
             messagebox.showinfo(

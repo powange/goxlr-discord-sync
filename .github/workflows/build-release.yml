@@ -6,6 +6,9 @@ on:
       - 'v*'  # Déclenche sur les tags version (ex: v1.0.0)
   workflow_dispatch:  # Permet de lancer manuellement
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
