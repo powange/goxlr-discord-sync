@@ -1,14 +1,16 @@
 # GoXLR Discord Sync
 
-Synchronize your GoXLR Cough button with Discord mute via the RPC API.
+Synchronize your GoXLR controls with Discord via the RPC API.
 
-When you press the Cough button on your GoXLR, Discord automatically mutes/unmutes!
+- Press the **Cough button** on your GoXLR → Discord automatically **mutes/unmutes** your microphone
+- Mute the **Chat channel** on your GoXLR mixer → Discord automatically **deafens/undeafens** (you won't hear others)
 
 ![System Tray](https://img.shields.io/badge/System%20Tray-Icon-green) ![Auto%20Start](https://img.shields.io/badge/Auto%20Start-Windows-blue) ![Instant%20Sync](https://img.shields.io/badge/Sync-Instant-red)
 
 ## ✨ Features
 
 - 🎙️ **Instant synchronization** between GoXLR Cough button and Discord mute
+- 🔇 **Chat channel sync** - Mute Chat channel on GoXLR → Discord deafen (you won't hear others)
 - 🔄 **Auto-reconnect** if Discord or GoXLR Utility restarts
 - 🎨 **System tray icon** with visual status (green = unmuted, red = muted)
 - 🚀 **Auto-start** with Windows
@@ -74,7 +76,12 @@ Once installed:
 - ✅ The app runs in the background (system tray)
 - ✅ Look for the colored icon: 🟢 Green = Unmuted | 🔴 Red = Muted
 - ✅ Press the **Cough** button on your GoXLR to toggle Discord mute
+- ✅ Mute the **Chat channel** on your GoXLR mixer to toggle Discord deafen
 - ✅ Right-click the tray icon for options (Status, Quit)
+
+### What's the difference between Mute and Deafen?
+- **Mute** (Cough button): You can hear others, but they can't hear you
+- **Deafen** (Chat channel mute): You can't hear others (and they can't hear you either)
 
 ## 🔍 Troubleshooting
 

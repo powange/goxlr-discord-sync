@@ -50,6 +50,9 @@ discord_client_id = None
 client_secret = None
 discord_rpc = None
 is_muted = False
+is_deafened = False  # État deafen Discord pour canal Chat GoXLR
+enabled_cough_sync = True  # Option menu : activer sync Cough → Mute
+enabled_chat_sync = True  # Option menu : activer sync Chat → Deafen
 tray_icon = None
 app_running = True
 status_text = "Initializing..."
@@ -148,14 +151,41 @@ def on_quit(icon, item):
 
 def on_show_status(icon, item):
     """Show current status notification"""
-    global status_text, is_muted, tray_icon
-    status = "🔇 Muted" if is_muted else "🔊 Unmuted"
+    global status_text, is_muted, is_deafened, tray_icon
+    mute_status = "🔇 Muted" if is_muted else "🔊 Unmuted"
+    deafen_status = "🔇 Deafened" if is_deafened else "🔊 Hearing"
 
     if tray_icon:
         tray_icon.notify(
             title="GoXLR Discord Sync",
-            message=f"{status}\n{status_text}"
+            message=f"Mic: {mute_status}\nAudio: {deafen_status}\n{status_text}"
         )
+
+def on_toggle_cough_sync(icon, item):
+    """Toggle Cough → Mute synchronization"""
+    global enabled_cough_sync
+    enabled_cough_sync = not enabled_cough_sync
+    status = "activée" if enabled_cough_sync else "désactivée"
+    print(f"Synchronisation Cough → Mute {status}")
+    # Forcer la mise à jour du menu
+    icon.update_menu()
+
+def on_toggle_chat_sync(icon, item):
+    """Toggle Chat → Deafen synchronization"""
+    global enabled_chat_sync
+    enabled_chat_sync = not enabled_chat_sync
+    status = "activée" if enabled_chat_sync else "désactivée"
+    print(f"Synchronisation Chat → Deafen {status}")
+    # Forcer la mise à jour du menu
+    icon.update_menu()
+
+def check_cough_sync(item):
+    """Return checked state for Cough sync option"""
+    return enabled_cough_sync
+
+def check_chat_sync(item):
+    """Return checked state for Chat sync option"""
+    return enabled_chat_sync
 
 def setup_tray_icon():
     """Setup system tray icon"""
@@ -163,6 +193,9 @@ def setup_tray_icon():
 
     # Create menu
     menu = pystray.Menu(
+        pystray.MenuItem("Cough → Mute Discord", on_toggle_cough_sync, checked=check_cough_sync),
+        pystray.MenuItem("Mute Chat → Deafen Discord", on_toggle_chat_sync, checked=check_chat_sync),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem("Status", on_show_status),
         pystray.MenuItem("Quit", on_quit)
     )
@@ -495,6 +528,30 @@ async def sync_mute_state(goxlr_muted):
         status_text = f"Sync error: {e}"
         return False
 
+async def sync_deafen_state(goxlr_chat_muted):
+    """Synchronise l'état mute du canal Chat avec Discord deafen"""
+    global is_deafened, discord_rpc, status_text
+    import time
+
+    try:
+        start_time = time.time()
+        is_deafened = goxlr_chat_muted
+
+        # Appel API Discord pour deafen
+        await discord_rpc.set_voice_settings(deaf=is_deafened)
+
+        elapsed = time.time() - start_time
+        status = "Sourdine activée" if is_deafened else "Sourdine désactivée"
+        print(f"  → Discord: {status} (en {elapsed:.2f}s)")
+        status_text = f"Sync - {status}"
+
+        return True
+
+    except Exception as e:
+        print(f"  → Erreur deafen Discord: {e}")
+        status_text = f"Erreur sync deafen: {e}"
+        return False
+
 async def wait_for_goxlr():
     """Wait for GoXLR Utility to be available"""
     print("Waiting for GoXLR Utility...")
@@ -525,6 +582,8 @@ async def main_loop():
     global discord_rpc, app_running, status_text
 
     last_cough_state = None
+    last_chat_mute_state = None  # Dernier état mute du canal Chat
+    chat_fader_name = None  # Nom du fader qui contrôle le canal Chat (A, B, C, ou D)
     discord_connected = False
 
     while app_running:
@@ -574,11 +633,30 @@ async def main_loop():
                                 success = await sync_mute_state(goxlr_muted)
                                 if not success:
                                     discord_connected = False
+
+                                # Trouver quel fader contrôle le canal Chat
+                                if "fader_status" in mixer:
+                                    for fader_name, fader_info in mixer["fader_status"].items():
+                                        if fader_info.get("channel") == "Chat":
+                                            chat_fader_name = fader_name
+                                            last_chat_mute_state = fader_info.get("mute_state")
+                                            print(f"Canal Chat trouvé sur fader {chat_fader_name}")
+                                            print(f"Initial Chat mute state: {last_chat_mute_state}")
+
+                                            # Synchroniser l'état deafen initial
+                                            chat_muted = (last_chat_mute_state != "Unmuted")
+                                            success_deafen = await sync_deafen_state(chat_muted)
+                                            if not success_deafen:
+                                                discord_connected = False
+                                            break
+
                                 break
                 
                 print()
                 print("=" * 50)
-                print("  LISTENING - Press Cough to mute Discord")
+                print("  EN ÉCOUTE")
+                print("  - Bouton Cough → Mute Discord")
+                print("  - Canal Chat → Sourdine Discord")
                 print("=" * 50)
                 print()
                 
@@ -599,36 +677,77 @@ async def main_loop():
                                     event_time = time.time()
                                     print(f"Cough: {last_cough_state} → {new_state}")
 
-                                    # Sync with Discord
+                                    # Sync with Discord si option activée
                                     goxlr_muted = (new_state != "Unmuted")
 
-                                    # Start sync immediately (non-blocking for UI feedback)
-                                    success = await sync_mute_state(goxlr_muted)
+                                    if enabled_cough_sync:
+                                        # Start sync immediately (non-blocking for UI feedback)
+                                        success = await sync_mute_state(goxlr_muted)
 
-                                    total_time = time.time() - event_time
-                                    print(f"  Total time from event: {total_time:.2f}s")
+                                        total_time = time.time() - event_time
+                                        print(f"  Total time from event: {total_time:.2f}s")
 
-                                    if not success:
-                                        # Discord disconnected, reconnect
-                                        discord_connected = False
-                                        print("Discord disconnected. Reconnecting...")
+                                        if not success:
+                                            # Discord disconnected, reconnect
+                                            discord_connected = False
+                                            print("Discord disconnected. Reconnecting...")
 
-                                        # Close properly
-                                        try:
-                                            discord_rpc.close()
-                                        except:
-                                            pass
+                                            # Close properly
+                                            try:
+                                                discord_rpc.close()
+                                            except:
+                                                pass
 
-                                        # Wait and reconnect
-                                        await asyncio.sleep(2)
-                                        discord_connected = await connect_discord()
+                                            # Wait and reconnect
+                                            await asyncio.sleep(2)
+                                            discord_connected = await connect_discord()
 
-                                        if discord_connected:
-                                            # Resync state
-                                            await sync_mute_state(goxlr_muted)
+                                            if discord_connected:
+                                                # Resync state
+                                                await sync_mute_state(goxlr_muted)
+                                    else:
+                                        print("  Synchronisation Cough → Mute désactivée")
 
                                     last_cough_state = new_state
-                                    
+
+                            # Surveiller les changements de mute du canal Chat
+                            # Chercher le chemin fader_status/{chat_fader_name}/mute_state
+                            if chat_fader_name and f"fader_status/{chat_fader_name}/mute_state" in path:
+                                new_chat_mute_state = patch.get("value")
+                                if new_chat_mute_state is not None and new_chat_mute_state != last_chat_mute_state:
+                                    import time
+                                    event_time = time.time()
+                                    print(f"Chat Mute: {last_chat_mute_state} → {new_chat_mute_state}")
+
+                                    # Synchroniser avec Discord deafen si option activée
+                                    goxlr_chat_muted = (new_chat_mute_state != "Unmuted")
+
+                                    if enabled_chat_sync:
+                                        success = await sync_deafen_state(goxlr_chat_muted)
+
+                                        total_time = time.time() - event_time
+                                        print(f"  Temps total depuis événement: {total_time:.2f}s")
+
+                                        if not success:
+                                            # Discord déconnecté, reconnecter
+                                            discord_connected = False
+                                            print("Discord déconnecté. Reconnexion...")
+
+                                            try:
+                                                discord_rpc.close()
+                                            except:
+                                                pass
+
+                                            await asyncio.sleep(2)
+                                            discord_connected = await connect_discord()
+
+                                            if discord_connected:
+                                                await sync_deafen_state(goxlr_chat_muted)
+                                    else:
+                                        print("  Synchronisation Chat → Deafen désactivée")
+
+                                    last_chat_mute_state = new_chat_mute_state
+
         except asyncio.CancelledError:
             print("Shutdown requested.")
             break
