@@ -139,6 +139,24 @@ build.py                # PyInstaller build (used by build*.bat and CI)
 tests/                  # pytest suite (fake GoXLR Utility and fake Discord)
 ```
 
+## 🔏 Code signing
+
+The executables are not signed yet, so Windows SmartScreen may warn on the first download. The release workflow is ready for two kinds of signing. Each one switches on as soon as its secrets exist; until then releases are built unsigned, as before.
+
+**SignPath (free for open source)**
+
+1. Apply at https://signpath.org (SignPath Foundation, open-source program) with this repository.
+2. In SignPath, create the project, paste `signing/signpath-artifact-configuration.xml` as its artifact configuration, and add GitHub as trusted build system for this repository.
+3. In GitHub, **Settings › Secrets and variables › Actions**:
+   - secret `SIGNPATH_API_TOKEN`;
+   - variables `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_POLICY_SLUG`.
+
+**Your own certificate (.pfx)**
+
+Add the secrets `SIGN_PFX_BASE64` (the file encoded with `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`) and `SIGN_PFX_PASSWORD`. `build.py` then signs each executable with `signtool` (Windows SDK) right after building it. Locally, set the same environment variables before `python build.py all`.
+
+Either way, the application is signed before the setup bundles it, the setup is signed next, the workflow checks both signatures, and `SHA256SUMS.txt` is computed from the signed files. To test the signing steps without a certificate, run the workflow by hand (**Actions › Build and Release › Run workflow**) with *Sign with a throwaway self-signed certificate* checked.
+
 ## 📄 License
 
 MIT, see [LICENSE](LICENSE).

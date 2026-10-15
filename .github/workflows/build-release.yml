@@ -7,6 +7,11 @@ on:
       - 'v*'  # release on version tags (e.g. v2.0.0)
   pull_request:
   workflow_dispatch:
+    inputs:
+      self_signed_test:
+        description: Sign with a throwaway self-signed certificate (tests the signing steps)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,8 +41,12 @@ jobs:
     needs: test
     permissions:
       contents: write  # create the GitHub release
+      actions: read    # SignPath reads the uploaded artifacts
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGN_PFX_CONFIGURED: ${{ secrets.SIGN_PFX_BASE64 != '' }}
     steps:
     - uses: actions/checkout@v7
 
@@ -61,8 +70,96 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-build.txt
 
-    - name: Build executables
-      run: python build.py all
+    # Code signing (inactive until configured, see README "Code signing"):
+    # - SignPath: secret SIGNPATH_API_TOKEN + variables SIGNPATH_ORGANIZATION_ID,
+    #   SIGNPATH_PROJECT_SLUG, SIGNPATH_POLICY_SLUG
+    # - certificate file: secrets SIGN_PFX_BASE64 + SIGN_PFX_PASSWORD (signed by build.py)
+    - name: Self-signed test certificate
+      if: inputs.self_signed_test
+      shell: pwsh
+      run: |
+        $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=GoXLR Discord Sync TEST" -CertStoreLocation Cert:\CurrentUser\My
+        $password = ConvertTo-SecureString -String "test" -Force -AsPlainText
+        Export-PfxCertificate -Cert $cert -FilePath test.pfx -Password $password | Out-Null
+        "TEST_PFX_BASE64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes('test.pfx')))" >> $env:GITHUB_ENV
+        Remove-Item test.pfx
+
+    - name: Build GoXLR_Discord_Sync.exe
+      run: python build.py app
+      env:
+        SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 || env.TEST_PFX_BASE64 }}
+        SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_BASE64 && secrets.SIGN_PFX_PASSWORD || 'test' }}
+
+    - name: Upload the app for SignPath
+      id: unsigned-app
+      if: env.SIGNPATH_API_TOKEN != ''
+      uses: actions/upload-artifact@v7
+      with:
+        name: unsigned-app
+        path: dist/GoXLR_Discord_Sync.exe
+
+    - name: Sign the app with SignPath
+      if: env.SIGNPATH_API_TOKEN != ''
+      uses: signpath/github-action-submit-signing-request@v2
+      with:
+        api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+        organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+        project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+        signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+        github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+        wait-for-completion: true
+        output-artifact-directory: dist/signed-app
+
+    - name: Use the signed app
+      if: env.SIGNPATH_API_TOKEN != ''
+      shell: pwsh
+      run: Copy-Item dist/signed-app/GoXLR_Discord_Sync.exe dist/GoXLR_Discord_Sync.exe -Force
+
+    - name: Build GoXLR_Setup.exe (bundles the signed app)
+      run: python build.py setup
+      env:
+        SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 || env.TEST_PFX_BASE64 }}
+        SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_BASE64 && secrets.SIGN_PFX_PASSWORD || 'test' }}
+
+    - name: Upload the setup for SignPath
+      id: unsigned-setup
+      if: env.SIGNPATH_API_TOKEN != ''
+      uses: actions/upload-artifact@v7
+      with:
+        name: unsigned-setup
+        path: dist/GoXLR_Setup.exe
+
+    - name: Sign the setup with SignPath
+      if: env.SIGNPATH_API_TOKEN != ''
+      uses: signpath/github-action-submit-signing-request@v2
+      with:
+        api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+        organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+        project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+        signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+        github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+        wait-for-completion: true
+        output-artifact-directory: dist/signed-setup
+
+    - name: Use the signed setup
+      if: env.SIGNPATH_API_TOKEN != ''
+      shell: pwsh
+      run: Copy-Item dist/signed-setup/GoXLR_Setup.exe dist/GoXLR_Setup.exe -Force
+
+    - name: Check signatures
+      if: env.SIGNPATH_API_TOKEN != '' || env.SIGN_PFX_CONFIGURED == 'true' || inputs.self_signed_test
+      shell: pwsh
+      run: |
+        $unsigned = @()
+        foreach ($file in Get-ChildItem dist\*.exe) {
+          $sig = Get-AuthenticodeSignature $file.FullName
+          "{0}: {1} ({2})" -f $file.Name, $sig.Status, $sig.SignerCertificate.Subject
+          if ($null -eq $sig.SignerCertificate) { $unsigned += $file.Name }
+        }
+        if ($unsigned) { throw "Not signed: $($unsigned -join ', ')" }
+
+    - name: Checksums
+      run: python build.py checksums
 
     - name: Create Release
       uses: softprops/action-gh-release@v3
@@ -88,4 +185,5 @@ jobs:
         name: GoXLR_Setup
         path: |
           dist/GoXLR_Setup.exe
+          dist/GoXLR_Discord_Sync.exe
           dist/SHA256SUMS.txt
