@@ -46,7 +46,6 @@ def test_apps_list_entry(monkeypatch, tmp_path):
 
     from goxlr_discord_sync import installer
 
-    monkeypatch.setattr(installer, "UNINSTALL_KEY", installer.UNINSTALL_KEY + "-test")  # never the real entry
     exe = tmp_path / "GoXLR_Discord_Sync.exe"
     exe.write_bytes(b"x" * 4096)
     installer.register_uninstall(exe, "9.9.9")
@@ -74,3 +73,14 @@ def test_self_delete_removes_file_and_empty_folder(tmp_path):
             break
         time.sleep(0.25)
     assert not folder.exists()
+
+
+def test_registry_autostart_uses_the_test_entry():
+    from goxlr_discord_sync import autostart
+
+    assert "TEST" in autostart.VALUE_NAME  # conftest.isolated_system
+    autostart.enable([r"C:\Program Files\Test App\app.exe", "--flag"])
+    assert autostart.registered_command() == '"C:\\Program Files\\Test App\\app.exe" --flag'
+    assert autostart.is_enabled()
+    autostart.disable()
+    assert not autostart.is_enabled()

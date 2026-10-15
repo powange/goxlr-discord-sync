@@ -294,16 +294,21 @@ async def test_rejected_token_needs_new_authorization(make_engine, monkeypatch):
 
 
 async def test_declined_authorization_waits_for_menu(make_engine, monkeypatch):
-    async def deny(self, scopes, timeout=300):
-        raise RPCError(5000, "OAuth2 Error: access_denied: The resource owner denied the request")
+    answers = {"deny": True}
+    real_authorize = FakeIPC.authorize
 
-    monkeypatch.setattr(FakeIPC, "authorize", deny)
+    async def authorize(self, scopes, timeout=300):
+        if answers["deny"]:
+            raise RPCError(5000, "OAuth2 Error: access_denied: The resource owner denied the request")
+        return await real_authorize(self, scopes, timeout)
+
+    monkeypatch.setattr(FakeIPC, "authorize", authorize)
     engine = make_engine(tokens=FakeTokens(token=None))
     await until(lambda: engine.status.auth == "required")
     count = len(FakeIPC.instances)
     await asyncio.sleep(0.2)
     assert len(FakeIPC.instances) == count  # no retry loop
-    monkeypatch.undo()
+    answers["deny"] = False  # never monkeypatch.undo(): it would also undo other fixtures' patches
     engine.reauthorize()
     await until(lambda: engine.status.discord_connected)
 

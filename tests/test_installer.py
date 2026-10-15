@@ -1,5 +1,4 @@
 import os
-import sys
 import threading
 from pathlib import Path
 
@@ -114,8 +113,7 @@ def test_secrets_lock_is_exclusive(monkeypatch):
 
 
 @pytest.fixture
-def installed(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+def installed(tmp_path):
     exe = tmp_path / "GoXLR Discord Sync" / "GoXLR_Discord_Sync.exe"
     exe.parent.mkdir()
     exe.write_bytes(b"app")
@@ -126,7 +124,6 @@ def installed(tmp_path, monkeypatch):
     return exe
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="uses the XDG autostart")
 def test_remove_installation_keeping_settings(installed):
     from goxlr_discord_sync import autostart, paths, secure_store
 
@@ -137,7 +134,6 @@ def test_remove_installation_keeping_settings(installed):
     assert report[-1] == f"Settings kept in {paths.data_dir()}"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="uses the XDG autostart")
 def test_remove_installation_with_settings_and_deferred_delete(installed):
     from goxlr_discord_sync import paths
 
@@ -154,3 +150,10 @@ def test_remove_installation_refuses_unrelated_files(tmp_path):
     other.write_bytes(b"x")
     installer.remove_installation(other, remove_settings=False)
     assert other.exists()
+
+
+def test_tests_never_use_the_real_system_names():
+    from goxlr_discord_sync import autostart
+
+    assert "TEST" in autostart.VALUE_NAME
+    assert "TEST" in installer.UNINSTALL_KEY

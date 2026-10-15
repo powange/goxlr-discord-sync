@@ -61,8 +61,7 @@ def test_migrates_version_1_files(tmp_path):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="would modify the real HKCU Run key")
-def test_linux_autostart(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+def test_linux_autostart():
     assert not autostart.is_enabled()
     autostart.enable(["/opt/app dir/run", "--flag"])
     assert autostart.is_enabled()
