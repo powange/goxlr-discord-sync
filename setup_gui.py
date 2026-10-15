@@ -10,6 +10,7 @@ import argparse
 import subprocess
 import sys
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from tkinter import font as tkfont
@@ -285,12 +286,26 @@ class SetupWizard:
         self.validator = validate
 
     def step_autostart(self) -> None:
-        self.title_label.configure(text=tr("Start automatically"))
+        self.title_label.configure(text=tr("Startup, updates and privacy"))
         enabled = tk.BooleanVar(value=True)
         label = (tr("Start GoXLR Discord Sync with Windows") if paths.IS_WINDOWS
                  else tr("Start GoXLR Discord Sync on login"))
-        ttk.Checkbutton(self.content, text=label, variable=enabled).pack(anchor=tk.W, pady=10)
+        ttk.Checkbutton(self.content, text=label, variable=enabled).pack(anchor=tk.W, pady=(10, 4))
+        check_updates = tk.BooleanVar(value=self.cfg.check_updates)
+        ttk.Checkbutton(self.content, text=tr("Check for new versions once a day (contacts GitHub)"),
+                        variable=check_updates).pack(anchor=tk.W, pady=(0, 10))
         self.text(tr("You can change this later from the tray icon menu."), foreground="gray")
+        ttk.Separator(self.content).pack(fill=tk.X, pady=10)
+        self.text(tr("Privacy"), font=("TkDefaultFont", 10, "bold"))
+        self.text(tr(
+            "GoXLR Discord Sync collects no personal data and has no telemetry. It talks to GoXLR Utility and "
+            "to Discord on this computer. Over the internet it only contacts Discord when you authorize the "
+            "application, and GitHub to check for updates (if enabled above) or to download an update you "
+            "confirmed. Your Discord credentials stay on this computer, encrypted."
+        ))
+        privacy = ttk.Label(self.content, text=tr("Read the privacy policy"), foreground="#3f6385", cursor="hand2")
+        privacy.pack(anchor=tk.W)
+        privacy.bind("<Button-1>", lambda _event: webbrowser.open(f"{REPO_URL}#privacy-policy"))
 
         def validate(proceed):
             try:
@@ -298,8 +313,11 @@ class SetupWizard:
                     autostart.enable(self.launch_command())
                 else:
                     autostart.disable()
+                if check_updates.get() != self.cfg.check_updates:
+                    self.cfg = self.cfg.updated(check_updates=check_updates.get())
+                    config.save(self.cfg)
             except OSError as e:
-                messagebox.showerror(tr("Autostart"), tr("Could not change the autostart setting:") + f"\n{e}")
+                messagebox.showerror(tr("Autostart"), tr("Could not save the settings:") + f"\n{e}")
                 return
             proceed()
 

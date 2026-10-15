@@ -178,6 +178,10 @@ jobs:
           Requirements: Windows 10/11, GoXLR Utility, Discord desktop app.
           Verify the download with `SHA256SUMS.txt` (`certutil -hashfile GoXLR_Setup.exe SHA256`).
 
+          ## Code signing policy
+          Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/) (signed releases start once the project is accepted).
+          See the [code signing policy](https://github.com/powange/goxlr-discord-sync#code-signing-policy) and the [privacy policy](https://github.com/powange/goxlr-discord-sync#privacy-policy).
+
     - name: Upload artifacts
       if: github.event_name == 'workflow_dispatch'
       uses: actions/upload-artifact@v7

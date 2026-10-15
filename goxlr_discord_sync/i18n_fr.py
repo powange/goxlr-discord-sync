@@ -273,11 +273,15 @@ FR = {
         "Cela prend deux minutes :",
     "These values could not be confirmed with Discord.": "Discord n'a pas pu confirmer ces valeurs.",
     "Save them anyway?": "Les enregistrer quand même ?",
-    "Start automatically": "Démarrage automatique",
+    "Startup, updates and privacy": "Démarrage, mises à jour et confidentialité",
+    "Check for new versions once a day (contacts GitHub)": "Rechercher une nouvelle version une fois par jour (contacte GitHub)",
+    "Privacy": "Confidentialité",
+    "GoXLR Discord Sync collects no personal data and has no telemetry. It talks to GoXLR Utility and to Discord on this computer. Over the internet it only contacts Discord when you authorize the application, and GitHub to check for updates (if enabled above) or to download an update you confirmed. Your Discord credentials stay on this computer, encrypted.":
+        "GoXLR Discord Sync ne collecte aucune donnée personnelle et n'envoie aucune télémétrie. Il communique avec GoXLR Utility et Discord sur cet ordinateur. Sur Internet, il ne contacte que Discord quand vous autorisez l'application, et GitHub pour rechercher les mises à jour (si l'option ci-dessus est cochée) ou télécharger une mise à jour que vous avez confirmée. Vos identifiants Discord restent sur cet ordinateur, chiffrés.",
+    "Read the privacy policy": "Lire la politique de confidentialité",
     "Start GoXLR Discord Sync with Windows": "Démarrer GoXLR Discord Sync avec Windows",
     "Start GoXLR Discord Sync on login": "Démarrer GoXLR Discord Sync à l'ouverture de session",
     "You can change this later from the tray icon menu.": "Vous pourrez le modifier plus tard depuis le menu de l'icône.",
-    "Could not change the autostart setting:": "Impossible de modifier le démarrage automatique :",
     "Setup complete": "Installation terminée",
     "GoXLR Discord Sync is installed.": "GoXLR Discord Sync est installé.",
     "On first launch, Discord asks you to authorize the application: click “Authorize” in the Discord window.":

@@ -157,6 +157,32 @@ Add the secrets `SIGN_PFX_BASE64` (the file encoded with `[Convert]::ToBase64Str
 
 Either way, the application is signed before the setup bundles it, the setup is signed next, the workflow checks both signatures, and `SHA256SUMS.txt` is computed from the signed files. To test the signing steps without a certificate, run the workflow by hand (**Actions › Build and Release › Run workflow**) with *Sign with a throwaway self-signed certificate* checked.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+Signed releases start with the first version published after the project is accepted by the SignPath Foundation; earlier releases are unsigned.
+
+- Committers and reviewers: [powange](https://github.com/powange) ([contributors](https://github.com/powange/goxlr-discord-sync/graphs/contributors))
+- Approvers: [powange](https://github.com/powange) (repository owner)
+
+Only executables built by the GitHub Actions workflow of this repository from tagged sources are signed, and every signing request is approved by hand. Pull requests from other contributors are reviewed before they are merged.
+
+## Privacy policy
+
+GoXLR Discord Sync does not collect personal data and has no telemetry or analytics.
+
+It only connects to:
+
+| Where | When | What is sent |
+|---|---|---|
+| GoXLR Utility on this computer (`localhost`) | always | GoXLR commands (two-way sync, button actions) |
+| The Discord client on this computer (local RPC) | always | voice settings changes (mute, deafen, leave the channel) |
+| `discord.com` | when you authorize the application | your application's Client ID and secret, the authorization code and tokens |
+| `api.github.com` / `github.com` | once a day if update checks are enabled, and when you confirm an update | a standard request for the latest release, then the download |
+
+The Discord Client ID, Client Secret and access tokens are stored only on your computer, in `%APPDATA%\GoXLR Discord Sync` (secrets encrypted with Windows DPAPI). Nothing is sent to the author of this project. Update checks can be turned off in the setup wizard and in **Settings › Behaviour**. Discord's [privacy policy](https://discord.com/privacy) and GitHub's [privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) apply to the connections to their services.
+
 ## 📄 License
 
 MIT, see [LICENSE](LICENSE).
