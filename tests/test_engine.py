@@ -44,6 +44,25 @@ class FakeIPC:
     async def subscribe(self, evt, args=None):
         return {}
 
+    channel = None  # {"id", "name", "guild_id"} while in a voice channel
+    guilds = {"g1": {"id": "g1", "name": "My Server"}}
+
+    async def get_selected_voice_channel(self):
+        return dict(self.channel) if self.channel else {}
+
+    async def get_guild(self, guild_id):
+        return self.guilds[guild_id]
+
+    async def select_voice_channel(self, channel_id):
+        self.calls.append({"select_voice_channel": channel_id})
+        self.channel = None
+        self.on_event("VOICE_CHANNEL_SELECT", {"channel_id": None, "guild_id": None})
+        return {}
+
+    def user_joins(self, name="General", guild_id="g1"):
+        self.channel = {"id": "c1", "name": name, "guild_id": guild_id}
+        self.on_event("VOICE_CHANNEL_SELECT", {"channel_id": "c1", "guild_id": guild_id})
+
     async def set_voice_settings(self, **args):
         self.calls.append(args)
         if "deaf" in args:
@@ -355,3 +374,51 @@ async def test_configured_goxlr_missing_pauses_sync(make_engine):
     await goxlr.patch([{"op": "add", "path": "/mixers/S2", "value": mixer(cough="MutedToAll")}])
     await until(lambda: ipc.calls == [{"mute": True}])
     assert engine.status.missing_device is None
+
+
+async def test_voice_channel_in_tooltip_and_status(make_engine):
+    engine = make_engine()
+    ipc, _ = await connected(engine)
+    assert engine.status.voice_channel is None
+    ipc.user_joins("General")
+    await until(lambda: engine.status.voice_channel == "My Server › General")
+    assert engine.summary().endswith(" - My Server › General")
+    assert "Voice channel: My Server › General" in engine.details()
+
+
+async def test_goxlr_buttons_trigger_discord_actions(make_engine):
+    cfg = Config(client_id="123", button_actions={"toggle_deafen": "SamplerClear", "leave_voice": "Bleep"})
+    engine = make_engine(cfg)
+    doc = status()
+    doc["mixers"]["S1"]["button_down"] = {"SamplerClear": False, "Bleep": False}
+    ipc, goxlr = await connected(engine, doc)
+    ipc.user_joins()
+    await until(lambda: engine.status.voice_channel is not None)
+
+    def press(button, down):
+        return goxlr.patch([{"op": "replace", "path": f"/mixers/S1/button_down/{button}", "value": down}])
+
+    await press("SamplerClear", True)
+    await until(lambda: ipc.voice["deaf"] is True)
+    await press("SamplerClear", False)  # release: nothing
+    await press("SamplerClear", True)
+    await until(lambda: ipc.voice["deaf"] is False)
+    await press("Bleep", True)
+    await until(lambda: {"select_voice_channel": None} in ipc.calls)
+    await until(lambda: engine.status.voice_channel is None)
+
+
+async def test_button_action_is_mirrored_with_two_way_sync(make_engine):
+    cfg = Config(client_id="123", bidirectional=True, button_actions={"toggle_mute": "EffectFx"})
+    engine = make_engine(cfg)
+    doc = status()
+    doc["mixers"]["S1"]["button_down"] = {"EffectFx": False}
+    ipc, goxlr = await connected(engine, doc)
+    await goxlr.patch([{"op": "replace", "path": "/mixers/S1/button_down/EffectFx", "value": True}])
+    await until(lambda: ("S1", {"SetCoughMuteState": "MutedToX"}) in goxlr.commands)
+    assert ipc.voice["mute"] is True
+
+
+def test_button_actions_config_is_validated():
+    cfg = Config.from_dict({"button_actions": {"toggle_mute": "Bleep", "explode": "Bleep", "leave_voice": "Cough"}})
+    assert cfg.button_actions == {"toggle_mute": "Bleep"}

@@ -239,3 +239,10 @@ class DiscordIPC:
 
     async def get_selected_voice_channel(self) -> dict | None:
         return await self.command("GET_SELECTED_VOICE_CHANNEL")
+
+    async def get_guild(self, guild_id: str) -> dict:
+        return await self.command("GET_GUILD", {"guild_id": guild_id})
+
+    async def select_voice_channel(self, channel_id: str | None) -> dict:
+        """Join a voice channel, or leave the current one with None."""
+        return await self.command("SELECT_VOICE_CHANNEL", {"channel_id": channel_id, "force": True})

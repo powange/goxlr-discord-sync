@@ -10,13 +10,14 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from . import APP_NAME, autostart, config, paths, secure_store, system
-from .config import FADER_CHANNELS, MUTE_TARGET_LABELS, MUTE_TARGETS
+from .config import ACTION_BUTTONS, BUTTON_ACTIONS, FADER_CHANNELS, MUTE_TARGET_LABELS, MUTE_TARGETS
 from .goxlr import MAX_MESSAGE_SIZE
 from .ui_common import DiscordCredentialsFrame, run_in_thread
 
 log = logging.getLogger(__name__)
 
 FIRST_DEVICE = "First GoXLR found"
+NO_BUTTON = "Not assigned"
 
 
 def detect_devices(url: str) -> dict[str, dict[str, str]]:
@@ -66,6 +67,7 @@ class SettingsWindow:
 
         notebook.add(self._discord_tab(notebook), text="Discord")
         notebook.add(self._goxlr_tab(notebook), text="GoXLR")
+        notebook.add(self._buttons_tab(notebook), text="Buttons")
         notebook.add(self._behaviour_tab(notebook), text="Behaviour")
 
         buttons = ttk.Frame(outer)
@@ -124,6 +126,32 @@ class SettingsWindow:
         )).grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
         return tab
 
+    def _buttons_tab(self, parent) -> ttk.Frame:
+        tab = ttk.Frame(parent, padding=12)
+        tab.columnconfigure(1, weight=1)
+        ttk.Label(tab, wraplength=540, justify=tk.LEFT, text=(
+            "Give a Discord action to a GoXLR button. The button keeps its usual GoXLR function: "
+            "an empty sampler slot or an unused effect button works best."
+        )).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 12))
+        labels = [NO_BUTTON, *ACTION_BUTTONS.values()]
+        self.action_vars = {}
+        for row, (action, label) in enumerate(BUTTON_ACTIONS.items(), start=1):
+            ttk.Label(tab, text=f"{label}:").grid(row=row, column=0, sticky=tk.W, pady=4)
+            current = ACTION_BUTTONS.get(self.cfg.button_actions.get(action, ""), NO_BUTTON)
+            var = tk.StringVar(value=current)
+            ttk.Combobox(tab, textvariable=var, values=labels, state="readonly", width=28
+                         ).grid(row=row, column=1, sticky=tk.W, padx=8, pady=4)
+            self.action_vars[action] = var
+        return tab
+
+    def _button_actions(self) -> dict[str, str] | None:
+        by_label = {label: key for key, label in ACTION_BUTTONS.items()}
+        chosen = {a: by_label[v.get()] for a, v in self.action_vars.items() if v.get() in by_label}
+        if len(set(chosen.values())) != len(chosen):
+            messagebox.showerror("Buttons", "Each GoXLR button can only have one action.", parent=self.root)
+            return None
+        return chosen
+
     def _behaviour_tab(self, parent) -> ttk.Frame:
         tab = ttk.Frame(parent, padding=12)
         self.bool_vars = {}
@@ -180,8 +208,12 @@ class SettingsWindow:
                                  f"{config.DEFAULT_GOXLR_URL}).", parent=self.root)
             return
 
+        button_actions = self._button_actions()
+        if button_actions is None:
+            return
         serial = self.serial_var.get().strip()
         cfg = config.Config.from_dict({
+            "button_actions": button_actions,
             **self.cfg.to_dict(),
             "client_id": creds.client_id,
             "goxlr_url": url,

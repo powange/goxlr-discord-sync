@@ -24,6 +24,30 @@ FADER_CHANNELS = (
     "Mic", "Headphones", "MicMonitor", "LineOut",
 )
 
+# GoXLR buttons that can trigger a Discord action (Cough and fader mutes are already synced).
+ACTION_BUTTONS = {
+    "Bleep": "Bleep",
+    "EffectFx": "FX",
+    "EffectMegaphone": "Megaphone",
+    "EffectRobot": "Robot",
+    "EffectHardTune": "Hard Tune",
+    **{f"EffectSelect{i}": f"Effect preset {i}" for i in range(1, 7)},
+    "SamplerSelectA": "Sampler bank A",
+    "SamplerSelectB": "Sampler bank B",
+    "SamplerSelectC": "Sampler bank C",
+    "SamplerTopLeft": "Sampler top left",
+    "SamplerTopRight": "Sampler top right",
+    "SamplerBottomLeft": "Sampler bottom left",
+    "SamplerBottomRight": "Sampler bottom right",
+    "SamplerClear": "Sampler clear",
+}
+
+BUTTON_ACTIONS = {
+    "toggle_mute": "Toggle Discord mute",
+    "toggle_deafen": "Toggle Discord deafen",
+    "leave_voice": "Leave the voice channel",
+}
+
 DEFAULT_GOXLR_URL = "ws://localhost:14564/api/websocket"
 DEFAULT_OAUTH_PORT = 9543
 
@@ -43,6 +67,8 @@ class Config:
     notifications: bool = True
     check_updates: bool = True
     oauth_port: int = DEFAULT_OAUTH_PORT
+    # Discord action -> GoXLR button that triggers it, e.g. {"leave_voice": "SamplerClear"}
+    button_actions: dict[str, str] = field(default_factory=dict)
 
     @property
     def redirect_uri(self) -> str:
@@ -65,6 +91,10 @@ class Config:
             elif isinstance(default, list):
                 if isinstance(value, list):
                     setattr(cfg, key, [v for v in value if v in MUTE_TARGETS])
+            elif isinstance(default, dict):
+                if isinstance(value, dict):
+                    setattr(cfg, key, {a: b for a, b in value.items()
+                                       if a in BUTTON_ACTIONS and b in ACTION_BUTTONS})
             elif isinstance(value, str):
                 setattr(cfg, key, value.strip())
         if not cfg.goxlr_url:

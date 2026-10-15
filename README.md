@@ -5,13 +5,15 @@ Mirror your GoXLR mute controls to Discord through Discord's local RPC API.
 - Press the **Cough button** → Discord **mutes** your microphone
 - Mute the **Chat channel** fader → Discord **deafens** you (you no longer hear others)
 - Optional **two-way sync**: mute or deafen in Discord → the GoXLR follows (LEDs included)
+- Give a **GoXLR button** (empty sampler slot, effect button, Bleep…) a Discord action: toggle mute, toggle deafen, leave the voice channel
 
 ## ✨ Features
 
 - 🎙️ Instant synchronisation, aware of the GoXLR mute functions (*Mute to Stream* does not mute you in Discord)
 - 🔄 Reconnects on its own when GoXLR Utility or Discord restarts, without waiting for a button press
 - 🎨 Tray icon that shows the real Discord state: 🟢 mic live · 🔴 muted / deafened · 🟠 waiting for GoXLR Utility or Discord · ⚪ action needed
-- ⚙️ Settings window: device, deafen channel, which mute functions count, two-way sync, notifications
+- ⚙️ Settings window: device, deafen channel, which mute functions count, button actions, two-way sync, notifications
+- 🔊 Current voice channel in the tooltip; update notices wait until you leave the call
 - 🔐 Client secret and tokens encrypted with Windows DPAPI
 - 🔔 Optional notifications when a connection is lost or restored, and when an update is available
 - 🚀 Starts with Windows (or on login under Linux)
@@ -68,6 +70,12 @@ GoXLR mute buttons have a *mute function* (All, To Stream, To Voice Chat, To Hea
 - the **Chat fader** deafens Discord when muted to *everything* or *Headphones*.
 
 So muting Chat *to Stream* (to hide Discord from your stream) no longer deafens you. Change this in **Settings › GoXLR**.
+
+### Button actions
+
+In **Settings › Buttons**, give a GoXLR button one of these actions: *Toggle Discord mute*, *Toggle Discord deafen*, *Leave the voice channel*. The button keeps its normal GoXLR function, so an empty sampler slot or an unused effect button works best. The Cough button and fader mutes are not offered: they are already synced.
+
+If a GoXLR is chosen in **Settings › GoXLR** and it is not plugged in, sync pauses (orange icon) instead of using another device.
 
 ### Files
 

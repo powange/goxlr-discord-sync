@@ -77,6 +77,7 @@ class MixerSnapshot:
     deafen_fader: str | None  # "A".."D", None when the channel is not on a fader
     deafen_state: str | None
     deafen_mute_type: str | None
+    buttons_down: frozenset[str] = frozenset()  # GoXLR buttons currently pressed
 
 
 def _as_dict(value) -> dict:
@@ -126,6 +127,7 @@ class GoXLRStatus:
             deafen_fader=fader_name,
             deafen_state=fader.get("mute_state") if fader else None,
             deafen_mute_type=fader.get("mute_type") if fader else None,
+            buttons_down=frozenset(name for name, down in _as_dict(mixer.get("button_down")).items() if down is True),
         )
 
 

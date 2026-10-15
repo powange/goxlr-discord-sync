@@ -66,3 +66,20 @@ async def test_automatic_check_notifies_each_version_once(app, monkeypatch):
     assert app.notes == ["Update available"]
     assert app.installs == 0  # never installs without the user asking
     assert app.update_info == NEWER
+
+
+async def test_update_notice_waits_for_the_end_of_a_call(app, monkeypatch):
+    from types import SimpleNamespace
+
+    frozen(monkeypatch)
+    monkeypatch.setattr(updates, "fetch_latest_release", lambda: NEWER)
+    app.engine = SimpleNamespace(status=SimpleNamespace(voice_channel="Server › General"),
+                                 icon_spec=lambda: ("live", "mic", False), summary=lambda: "")
+    app.tray = SimpleNamespace(refresh=lambda *a: None)
+    await app.check_updates()
+    assert app.notes == []  # not during the call
+    app.engine.status.voice_channel = None
+    app._refresh_tray()  # the engine reports the end of the call
+    assert app.notes == ["Update available"]
+    app._refresh_tray()
+    assert app.notes == ["Update available"]  # only once

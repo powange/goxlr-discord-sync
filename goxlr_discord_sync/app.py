@@ -40,6 +40,7 @@ class App:
         self.update_info: updates.Release | None = None
         self._updating = False
         self._check_lock = asyncio.Lock()
+        self._deferred_update_notice: updates.Release | None = None
         self._main_task: asyncio.Task | None = None
 
     def run(self) -> None:
@@ -74,6 +75,18 @@ class App:
     def _refresh_tray(self) -> None:
         if self.tray is not None and self.engine is not None:
             self.tray.refresh(self.engine.icon_spec(), self.engine.summary())
+            if self._deferred_update_notice and not self.in_call:
+                release, self._deferred_update_notice = self._deferred_update_notice, None
+                self._notify_update(release)
+
+    @property
+    def in_call(self) -> bool:
+        return bool(self.engine and self.engine.status.voice_channel)
+
+    def _notify_update(self, release: updates.Release) -> None:
+        action = "Install update" if self.can_self_update else "Update available"
+        self._notify("Update available", f"Version {release.version} is available. "
+                     f"Choose “{action}” in the tray menu.")
 
     def _notify(self, title: str, message: str) -> None:
         if self.tray is not None:
@@ -180,10 +193,14 @@ class App:
         config.save_state(state)
         if manual and self.can_self_update:
             self.install_update()  # the confirmation dialog is the answer
-        elif manual or first_notice:
-            action = "Install update" if self.can_self_update else "Update available"
-            self._notify("Update available", f"Version {latest.version} is available. "
-                         f"Choose “{action}” in the tray menu.")
+        elif manual:
+            self._notify_update(latest)
+        elif first_notice:
+            if self.in_call:
+                log.info("Update %s found during a call: notification postponed", latest.version)
+                self._deferred_update_notice = latest
+            else:
+                self._notify_update(latest)
 
     def check_updates_now(self) -> None:
         if self.loop is not None:
@@ -249,6 +266,8 @@ class App:
             question = (
                 f"{APP_NAME} {release.version} is available (you have {__version__}).\n\n"
                 + (f"{notes}\n\n" if notes else "")
+                + ("You are in a voice call: mute sync stops for a few seconds during the update.\n\n"
+                   if self.in_call else "")
                 + "Install it now? The application closes for a few seconds and starts again on its own."
             )
             if not system.message_box(question, title=f"{APP_NAME} update", ask=True):

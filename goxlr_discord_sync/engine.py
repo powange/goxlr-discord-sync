@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from websockets.exceptions import WebSocketException
 
 from . import auth, secure_store
-from .config import Config
+from .config import BUTTON_ACTIONS, Config
 from .discord_ipc import DiscordClosed, DiscordIPC, DiscordUnavailable, RPCError
 from .goxlr import GoXLRClient, GoXLRStatus, MixerSnapshot
 from .sync_logic import desired_flag, goxlr_state_for, plan_discord_update
@@ -50,6 +50,7 @@ class Status:
     serial: str | None = None
     deafen_fader: str | None = None
     missing_device: str | None = None  # configured GoXLR serial that is not connected
+    voice_channel: str | None = None   # Discord voice channel the user is in
     detail: str = "Starting..."
     last_latency_ms: float | None = None
 
@@ -83,6 +84,7 @@ class Engine:
         self._force_refresh = False
         self._auth_failures = 0
         self._set_in_flight = False      # a SET_VOICE_SETTINGS is waiting for its response
+        self._action_in_flight = False   # a button action is waiting for its response
         self._events_during_set = False
         self._set_failures = 0
         self._retry_handle: asyncio.TimerHandle | None = None
@@ -257,6 +259,12 @@ class Engine:
             self._connection_changed("GoXLR Utility", True)
             if snap and not snap.deafen_fader:
                 log.info("Channel %s is not assigned to a fader: deafen sync inactive", self.cfg.deafen_channel)
+        if previous and snap and previous.serial == snap.serial:
+            pressed = snap.buttons_down - previous.buttons_down
+            for action, button in self.cfg.button_actions.items():
+                if button in pressed:
+                    log.info("GoXLR %s pressed: %s", button, BUTTON_ACTIONS.get(action, action))
+                    self._spawn(self._run_action(action))
         if previous and snap:
             if previous.cough_state != snap.cough_state:
                 log.info("Cough button: %s -> %s (mute function %s)",
@@ -320,7 +328,7 @@ class Engine:
                 self._set(detail=f"Discord error: {e}")
             finally:
                 was_connected = self.status.discord_connected
-                self._set(discord_connected=False, discord_mute=None, discord_deaf=None)
+                self._set(discord_connected=False, discord_mute=None, discord_deaf=None, voice_channel=None)
                 self._connection_changed("Discord", False)
                 if was_connected:
                     delay = RETRY_MIN
@@ -363,6 +371,11 @@ class Engine:
             voice = await ipc.get_voice_settings()
             await ipc.subscribe("VOICE_SETTINGS_UPDATE")
             self._update_discord_voice(voice)
+            try:
+                await ipc.subscribe("VOICE_CHANNEL_SELECT")
+            except RPCError as e:
+                log.info("Voice channel tracking unavailable: %s", e)
+            await self._refresh_voice_channel(ipc)
             log.info("Connected to Discord")
             self._set(auth="ok", discord_connected=True, detail="Connected")
             self._connection_changed("Discord", True)
@@ -427,17 +440,72 @@ class Engine:
         if changes:
             self._set(**changes)
 
+    async def _refresh_voice_channel(self, ipc: DiscordIPC) -> None:
+        """Name of the voice channel the user is in (tooltip, Status, update timing)."""
+        try:
+            channel = await ipc.get_selected_voice_channel()
+            label = None
+            if channel and channel.get("id"):
+                label = channel.get("name") or "Private call"
+                if channel.get("guild_id"):
+                    guild = await ipc.get_guild(channel["guild_id"])
+                    if guild.get("name"):
+                        label = f"{guild['name']} › {label}"
+        except (RPCError, DiscordClosed, TimeoutError) as e:
+            log.info("Cannot read the voice channel: %s", e)
+            return
+        if label != self.status.voice_channel:
+            log.info("Voice channel: %s", label or "none")
+        self._set(voice_channel=label)
+
+    async def _run_action(self, action: str) -> None:
+        """Discord action bound to a GoXLR button."""
+        ipc, st = self._ipc, self.status
+        if ipc is None or not st.discord_connected:
+            log.info("Discord is not connected: %s ignored", action)
+            return
+        try:
+            if action in ("toggle_mute", "toggle_deafen"):
+                prev_mute, prev_deaf = st.discord_mute, st.discord_deaf
+                args = {"mute": not prev_mute} if action == "toggle_mute" else {"deaf": not prev_deaf}
+                self._action_in_flight = True
+                try:
+                    result = await ipc.set_voice_settings(**args)
+                finally:
+                    self._action_in_flight = False
+                self._update_discord_voice(result if isinstance(result, dict) else args)
+                # A user choice made on the GoXLR: handled once, whatever the message order.
+                self._after_voice_change(prev_mute, prev_deaf)
+            elif action == "leave_voice":
+                if st.voice_channel is None:
+                    log.info("Not in a voice channel")
+                    return
+                await ipc.select_voice_channel(None)
+        except (RPCError, DiscordClosed, TimeoutError) as e:
+            log.warning("Discord action %s failed: %s", action, e)
+
     def _on_discord_event(self, evt: str, data: dict) -> None:
+        if evt == "VOICE_CHANNEL_SELECT":
+            if self._ipc is not None:
+                self._spawn(self._refresh_voice_channel(self._ipc))
+            return
         if evt != "VOICE_SETTINGS_UPDATE":
             return
         st = self.status
         prev_mute, prev_deaf = st.discord_mute, st.discord_deaf
         self._update_discord_voice(data)
+        if self._action_in_flight:
+            return  # _run_action handles it when the response arrives
         if self._set_in_flight:
             # Echo of our own change (Discord may send it before the response), or a click
             # at the same instant: settled by the reconcile loop once the response is in.
             self._events_during_set = True
             return
+        self._after_voice_change(prev_mute, prev_deaf)
+
+    def _after_voice_change(self, prev_mute: bool | None, prev_deaf: bool | None) -> None:
+        """React to a voice settings change made by the user (in Discord or with a button)."""
+        st = self.status
         # Only fields that actually changed come from the user; everything else is a repeat.
         deaf_changed = prev_deaf is not None and st.discord_deaf != prev_deaf
         mute_changed = prev_mute is not None and st.discord_mute != prev_mute
@@ -567,7 +635,8 @@ class Engine:
             return "No GoXLR connected"
         mic = "Mic muted" if st.discord_mute else "Mic live"
         audio = "Deafened" if st.discord_deaf else "Hearing"
-        return f"{mic}, {audio.lower()}"
+        where = f" - {st.voice_channel}" if st.voice_channel else ""
+        return f"{mic}, {audio.lower()}{where}"
 
     def icon_spec(self) -> tuple[str, str, bool]:
         """(colour, glyph, slashed) for icons.render()."""
@@ -601,6 +670,7 @@ class Engine:
         if st.discord_connected:
             lines.append(f"Mic: {'muted' if st.discord_mute else 'live'} · "
                          f"Audio: {'deafened' if st.discord_deaf else 'hearing'}")
+            lines.append(f"Voice channel: {st.voice_channel or 'none'}")
         if st.goxlr_connected and self.cfg.chat_sync:
             where = f"fader {st.deafen_fader}" if st.deafen_fader else "not on a fader"
             lines.append(f"{self.cfg.deafen_channel} channel: {where}")
