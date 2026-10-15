@@ -101,7 +101,7 @@ On Linux the folder is `~/.config/goxlr-discord-sync/`. Settings from version 1.
 
 ## 🗑️ Uninstall
 
-Run `GoXLR_Setup.exe` and click **Uninstall…** on the first page. It stops the app, removes the autostart and the executable, and asks whether to delete your settings.
+Open Windows **Settings › Apps › Installed apps**, find **GoXLR Discord Sync** and choose **Uninstall** (or run `GoXLR_Setup.exe` and click **Uninstall…**). It stops the app, removes the autostart and the executable, and asks whether to delete your settings.
 
 From source: `uninstall.bat`.
 

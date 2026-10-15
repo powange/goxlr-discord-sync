@@ -300,10 +300,25 @@ class App:
             self.loop.call_soon_threadsafe(self._main_task.cancel)
 
 
+def uninstall() -> None:
+    """GoXLR_Discord_Sync.exe --uninstall, started from Settings > Apps."""
+    if not system.message_box(f"Uninstall {APP_NAME}?\n\nThe application stops, its autostart is removed "
+                              "and the executable is deleted.", ask=True):
+        return
+    remove_settings = system.message_box(
+        f"Also delete your settings and Discord credentials?\n\n({paths.data_dir()})", ask=True)
+    installer.stop_other_instances()
+    exe = paths.app_dir() / paths.APP_EXE_NAME if paths.IS_FROZEN else None
+    report = installer.remove_installation(exe, remove_settings, delete_exe=installer.schedule_self_delete)
+    log.info("Uninstalled: %s", "; ".join(report))
+    system.message_box("\n".join(report), title=f"{APP_NAME} uninstalled")
+
+
 def _parse_args(argv):
     parser = argparse.ArgumentParser(prog="GoXLR_Discord_Sync", description=APP_NAME)
     parser.add_argument("--settings", action="store_true", help="open the settings window")
     parser.add_argument("--autostart", choices=("on", "off"), help="register or remove the session autostart")
+    parser.add_argument("--uninstall", action="store_true", help="remove the application (Settings > Apps)")
     parser.add_argument("--version", action="version", version=__version__)
     return parser.parse_args(argv)
 
@@ -322,6 +337,10 @@ def main(argv=None) -> None:
         logging_setup.setup(console=True)
         (autostart.enable if args.autostart == "on" else autostart.disable)()
         return
+    if args.uninstall:
+        logging_setup.setup("uninstall.log", console=system.has_console())
+        uninstall()
+        return
 
     logging_setup.setup(console=system.has_console())
     log.info("%s %s starting", APP_NAME, __version__)
@@ -336,6 +355,11 @@ def main(argv=None) -> None:
         installer.record_started(__version__)  # tells a running update that this version starts
     except OSError as e:
         log.warning("Cannot record the start: %s", e)
+    if paths.IS_FROZEN and paths.IS_WINDOWS:
+        try:
+            installer.register_uninstall(paths.app_dir() / paths.APP_EXE_NAME, __version__)
+        except OSError as e:
+            log.warning("Cannot update the Apps list entry: %s", e)
 
     try:
         migration.run()

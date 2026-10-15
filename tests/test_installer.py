@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -110,3 +111,46 @@ def test_secrets_lock_is_exclusive(monkeypatch):
     secure_store.set_client_secret("ok")  # usable again once released
     assert secure_store.get_client_secret() == "ok"
     assert os.path.exists(secure_store.paths.data_dir() / "secrets.lock")
+
+
+@pytest.fixture
+def installed(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    exe = tmp_path / "GoXLR Discord Sync" / "GoXLR_Discord_Sync.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"app")
+    from goxlr_discord_sync import autostart, secure_store
+
+    autostart.enable([str(exe)])
+    secure_store.set_client_secret("s")
+    return exe
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses the XDG autostart")
+def test_remove_installation_keeping_settings(installed):
+    from goxlr_discord_sync import autostart, paths, secure_store
+
+    report = installer.remove_installation(installed, remove_settings=False)
+    assert not installed.exists() and not installed.parent.exists()
+    assert not autostart.is_enabled()
+    assert secure_store.get_client_secret() == "s"
+    assert report[-1] == f"Settings kept in {paths.data_dir()}"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses the XDG autostart")
+def test_remove_installation_with_settings_and_deferred_delete(installed):
+    from goxlr_discord_sync import paths
+
+    scheduled = []
+    report = installer.remove_installation(installed, remove_settings=True,
+                                           delete_exe=lambda exe: scheduled.append(exe) or True)
+    assert scheduled == [installed]  # the running exe is deleted after exit
+    assert "✓ Settings and credentials deleted" in report
+    assert not paths.secrets_file().exists()
+
+
+def test_remove_installation_refuses_unrelated_files(tmp_path):
+    other = tmp_path / "python.exe"
+    other.write_bytes(b"x")
+    installer.remove_installation(other, remove_settings=False)
+    assert other.exists()

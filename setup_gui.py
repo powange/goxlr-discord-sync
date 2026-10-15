@@ -7,10 +7,8 @@ Both then configure the Discord application and the autostart.
 """
 
 import argparse
-import shutil
 import subprocess
 import sys
-import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -34,6 +32,8 @@ from goxlr_discord_sync.installer import (
     copy_with_retry,
     installed_dir,
     perform_update,
+    register_uninstall,
+    remove_installation,
     stop_running_app,
 )
 from goxlr_discord_sync.ui_common import DiscordCredentialsFrame, run_in_thread
@@ -167,6 +167,7 @@ class SetupWizard:
                 target_dir.mkdir(parents=True, exist_ok=True)
                 stop_running_app()
                 copy_with_retry(BUNDLED_EXE, target_dir / paths.APP_EXE_NAME)
+                register_uninstall(target_dir / paths.APP_EXE_NAME, __version__)
                 migration.migrate_legacy_files(target_dir)
                 stale = target_dir / "requirements.txt"  # copied by setup 1.x
                 if stale.exists():
@@ -327,36 +328,9 @@ class SetupWizard:
             return
         remove_settings = messagebox.askyesno(
             "Uninstall", f"Also delete your settings and Discord credentials?\n\n({paths.data_dir()})")
-        report = []
-        try:
-            exe = autostart.installed_exe_path() or (paths.default_install_dir() / paths.APP_EXE_NAME)
-            stop_running_app()
-            autostart.disable()
-            report.append("✓ Autostart removed")
-            if FROZEN and exe.name.lower() == paths.APP_EXE_NAME.lower() and exe.exists():
-                for _ in range(10):
-                    try:
-                        exe.unlink(missing_ok=True)
-                        break
-                    except PermissionError:
-                        time.sleep(0.5)
-                (exe.parent / "requirements.txt").unlink(missing_ok=True)
-                try:
-                    exe.parent.rmdir()  # only when empty
-                except OSError:
-                    pass
-                report.append(f"✓ Application removed from {exe.parent}" if not exe.exists()
-                              else f"⚠ Could not delete {exe}")
-            elif FROZEN:
-                report.append(f"Application not found in {exe.parent}")
-            if remove_settings:
-                secure_store.clear_all()
-                shutil.rmtree(paths.data_dir(), ignore_errors=True)
-                report.append("✓ Settings and credentials deleted")
-            else:
-                report.append(f"Settings kept in {paths.data_dir()}")
-        except OSError as e:
-            report.append(f"⚠ {e}")
+        exe = autostart.installed_exe_path() or (paths.default_install_dir() / paths.APP_EXE_NAME)
+        stop_running_app()
+        report = remove_installation(exe if FROZEN else None, remove_settings)
         messagebox.showinfo("Uninstall", "\n".join(report))
         self.root.destroy()
 
