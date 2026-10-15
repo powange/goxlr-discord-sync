@@ -46,7 +46,7 @@ def test_snapshot_picks_configured_device():
     st = GoXLRStatus(status(S2=mixer(cough="MutedToAll"), S1=mixer()))
     assert st.snapshot("", "Chat").serial == "S1"  # stable default
     assert st.snapshot("S2", "Chat").cough_state == "MutedToAll"
-    assert st.snapshot("unknown", "Chat").serial == "S1"
+    assert st.snapshot("unknown", "Chat") is None  # never another GoXLR than the configured one
     assert GoXLRStatus({"mixers": {}}).snapshot("", "Chat") is None
 
 

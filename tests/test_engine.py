@@ -341,3 +341,17 @@ async def test_details_text(make_engine):
     text = engine.details()
     assert "GoXLR Utility: connected (S1)" in text
     assert "Chat channel: fader B" in text
+
+
+async def test_configured_goxlr_missing_pauses_sync(make_engine):
+    engine = make_engine(Config(client_id="123", mixer_serial="S2"))
+    ipc, goxlr = await connected(engine, status(S1=mixer(cough="MutedToAll")))
+    await asyncio.sleep(0.05)
+    assert ipc.calls == []  # S1 is not the configured device
+    assert engine.status.missing_device == "S2"
+    assert engine.summary() == "GoXLR S2 not connected"
+    assert engine.icon_spec()[0] == "warning"
+    assert "S2 is not plugged in" in engine.details()
+    await goxlr.patch([{"op": "add", "path": "/mixers/S2", "value": mixer(cough="MutedToAll")}])
+    await until(lambda: ipc.calls == [{"mute": True}])
+    assert engine.status.missing_device is None

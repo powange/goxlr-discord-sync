@@ -16,6 +16,7 @@ from . import (
     __version__,
     autostart,
     config,
+    installer,
     logging_setup,
     migration,
     paths,
@@ -311,6 +312,11 @@ def main(argv=None) -> None:
         log.info("Another instance is already running")
         system.message_box(f"{APP_NAME} is already running.\n\nLook for its icon in the system tray.")
         return
+
+    try:
+        installer.record_started(__version__)  # tells a running update that this version starts
+    except OSError as e:
+        log.warning("Cannot record the start: %s", e)
 
     try:
         migration.run()

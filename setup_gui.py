@@ -27,56 +27,19 @@ from goxlr_discord_sync import (
     secure_store,
     system,
 )
+from goxlr_discord_sync.installer import (
+    NO_WINDOW,
+    UpdateRolledBack,
+    app_installed,
+    copy_with_retry,
+    installed_dir,
+    perform_update,
+    stop_running_app,
+)
 from goxlr_discord_sync.ui_common import DiscordCredentialsFrame, run_in_thread
 
 FROZEN = paths.IS_FROZEN
 BUNDLED_EXE = Path(getattr(sys, "_MEIPASS", "")) / paths.APP_EXE_NAME if FROZEN else None
-NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
-def stop_running_app() -> None:
-    """Stop the installed application so its executable can be replaced or deleted."""
-    if not paths.IS_WINDOWS:
-        return
-    subprocess.run(["taskkill", "/F", "/IM", paths.APP_EXE_NAME], capture_output=True,
-                   timeout=15, creationflags=NO_WINDOW, check=False)
-
-
-def copy_with_retry(source: Path, target: Path, attempts: int = 10) -> None:
-    """Copy next to the target, then swap: an interrupted copy never leaves a broken exe."""
-    staged = target.with_name(target.name + ".new")
-    shutil.copy2(source, staged)
-    try:
-        for attempt in range(attempts):
-            try:
-                staged.replace(target)
-                return
-            except PermissionError:
-                if attempt == attempts - 1:
-                    raise
-                time.sleep(0.5)  # the exiting process may still hold the file
-    finally:
-        staged.unlink(missing_ok=True)
-
-
-def installed_dir() -> Path | None:
-    """Folder of the current installation, from its autostart entry."""
-    try:
-        exe = autostart.installed_exe_path()
-    except OSError:
-        return None
-    if exe and exe.name.lower() == paths.APP_EXE_NAME.lower() and exe.exists():
-        return exe.parent
-    return None
-
-
-def app_installed() -> bool:
-    try:
-        return autostart.is_enabled() or (paths.default_install_dir() / paths.APP_EXE_NAME).exists()
-    except OSError:
-        return False
-
-
 class SetupWizard:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -419,17 +382,17 @@ class UpdateWindow:
     def work(self, emit) -> None:
         if BUNDLED_EXE is None or not BUNDLED_EXE.exists():
             raise RuntimeError("This installer does not contain the application")
-        try:
-            copy_with_retry(BUNDLED_EXE, self.target, attempts=20)  # the app quits by itself
-        except PermissionError:
-            emit("Stopping the application…")
-            stop_running_app()
-            copy_with_retry(BUNDLED_EXE, self.target)
-        emit("Starting the new version…")
-        system.launch_detached([str(self.target)])
+        perform_update(BUNDLED_EXE, self.target, __version__, emit=emit)
 
     def done(self, result) -> None:
-        if isinstance(result, Exception):
+        if isinstance(result, UpdateRolledBack):
+            messagebox.showwarning(
+                "Update not installed",
+                f"{result}\n\nYou can keep using it. Details are in {paths.log_file()}. "
+                f"Please report the problem at {REPO_URL}/issues",
+                parent=self.root,
+            )
+        elif isinstance(result, Exception):
             messagebox.showerror(
                 "Update failed",
                 f"The update could not be installed:\n{result}\n\n"

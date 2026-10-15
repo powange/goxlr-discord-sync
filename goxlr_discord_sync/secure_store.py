@@ -4,8 +4,10 @@ On Windows the data is encrypted with DPAPI (bound to the Windows user
 account). Elsewhere it is written with 0600 permissions.
 """
 
+import contextlib
 import json
 import logging
+import time
 
 from . import paths
 
@@ -100,20 +102,61 @@ def save(data: dict) -> None:
     paths.atomic_write_bytes(paths.secrets_file(), _encode(data), private=True)
 
 
+@contextlib.contextmanager
+def _locked(timeout: float = 5.0):
+    """Serialise read-modify-write cycles between the app and the settings window."""
+    lock_path = paths.data_dir() / "secrets.lock"
+    with open(lock_path, "a+b") as f:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                _lock_file(f)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("secrets.dat is locked by another process") from None
+                time.sleep(0.02)
+        try:
+            yield
+        finally:
+            _unlock_file(f)
+
+
+if paths.IS_WINDOWS:
+    import msvcrt
+
+    def _lock_file(f) -> None:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+
+    def _unlock_file(f) -> None:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_file(f) -> None:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock_file(f) -> None:
+        fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def get_client_secret() -> str:
     return str(load().get("client_secret") or "")
 
 
 def set_client_secret(secret: str) -> None:
-    try:
-        data = _load_strict()
-    except UnreadableSecrets:
-        data = {}  # a new secret replaces an unreadable file on purpose
-    if data.get("client_secret") != secret:
-        # A new application secret invalidates tokens issued for the old one.
-        data.pop("token", None)
-    data["client_secret"] = secret
-    save(data)
+    with _locked():
+        try:
+            data = _load_strict()
+        except UnreadableSecrets:
+            data = {}  # a new secret replaces an unreadable file on purpose
+        if data.get("client_secret") != secret:
+            # A new application secret invalidates tokens issued for the old one.
+            data.pop("token", None)
+        data["client_secret"] = secret
+        save(data)
 
 
 def get_token() -> dict | None:
@@ -122,12 +165,13 @@ def get_token() -> dict | None:
 
 
 def set_token(token: dict | None) -> None:
-    data = _load_strict()  # raises instead of wiping the client secret
-    if token is None:
-        data.pop("token", None)
-    else:
-        data["token"] = token
-    save(data)
+    with _locked():
+        data = _load_strict()  # raises instead of wiping the client secret
+        if token is None:
+            data.pop("token", None)
+        else:
+            data["token"] = token
+        save(data)
 
 
 def clear_all() -> None:

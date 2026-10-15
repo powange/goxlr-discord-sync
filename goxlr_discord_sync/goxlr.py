@@ -98,9 +98,14 @@ class GoXLRStatus:
         return mixers if isinstance(mixers, dict) else {}
 
     def pick_serial(self, preferred: str = "") -> str | None:
+        """The configured device, or the first one when none is configured.
+
+        A configured device that is not connected gives None: syncing another
+        GoXLR instead would mute the wrong person's microphone.
+        """
         mixers = self.mixers
-        if preferred and preferred in mixers:
-            return preferred
+        if preferred:
+            return preferred if preferred in mixers else None
         return next(iter(sorted(mixers)), None)
 
     def snapshot(self, preferred_serial: str, deafen_channel: str) -> MixerSnapshot | None:

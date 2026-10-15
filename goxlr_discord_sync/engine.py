@@ -49,6 +49,7 @@ class Status:
     discord_deaf: bool | None = None
     serial: str | None = None
     deafen_fader: str | None = None
+    missing_device: str | None = None  # configured GoXLR serial that is not connected
     detail: str = "Starting..."
     last_latency_ms: float | None = None
 
@@ -276,7 +277,15 @@ class Engine:
             if snap.deafen_fader:
                 deaf = desired_flag(snap.deafen_state, snap.deafen_mute_type, cfg.deafen_triggers)
         wanted_changed = (mute, deaf) != (self.status.goxlr_mute, self.status.goxlr_deaf)
+        missing = cfg.mixer_serial if (cfg.mixer_serial and snap is None and self._goxlr_status is not None) else None
+        if missing != self.status.missing_device:
+            if missing:
+                connected = ", ".join(sorted(self._goxlr_status.mixers)) or "none"
+                log.warning("GoXLR %s is not connected (connected: %s): sync paused", missing, connected)
+            elif self.status.missing_device:
+                log.info("GoXLR %s is back", self.status.missing_device)
         self._set(
+            missing_device=missing,
             goxlr_mute=mute,
             goxlr_deaf=deaf,
             serial=snap.serial if snap else None,
@@ -552,6 +561,10 @@ class Engine:
             return "Waiting for Discord"
         if not st.goxlr_connected:
             return "Waiting for GoXLR Utility"
+        if st.missing_device:
+            return f"GoXLR {st.missing_device} not connected"
+        if st.serial is None:
+            return "No GoXLR connected"
         mic = "Mic muted" if st.discord_mute else "Mic live"
         audio = "Deafened" if st.discord_deaf else "Hearing"
         return f"{mic}, {audio.lower()}"
@@ -571,14 +584,18 @@ class Engine:
             spec = ("muted", "mic", True)
         else:
             spec = ("live", "mic", False)
-        if not (st.discord_connected and st.goxlr_connected):
+        if not (st.discord_connected and st.goxlr_connected) or st.serial is None:
             return "warning", spec[1], spec[2]
         return spec
 
     def details(self) -> str:
         st = self.status
-        goxlr = f"connected ({st.serial})" if st.goxlr_connected and st.serial else (
-            "connected, no device" if st.goxlr_connected else "not available")
+        if st.goxlr_connected and st.serial:
+            goxlr = f"connected ({st.serial})"
+        elif st.missing_device:
+            goxlr = f"connected, but GoXLR {st.missing_device} is not plugged in"
+        else:
+            goxlr = "connected, no device" if st.goxlr_connected else "not available"
         discord = "connected" if st.discord_connected else self.summary().lower()
         lines = [f"GoXLR Utility: {goxlr}", f"Discord: {discord}"]
         if st.discord_connected:
