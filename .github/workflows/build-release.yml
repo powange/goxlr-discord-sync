@@ -2,70 +2,88 @@ name: Build and Release
 
 on:
   push:
+    branches: [main]
     tags:
-      - 'v*'  # Déclenche sur les tags version (ex: v1.0.0)
-  workflow_dispatch:  # Permet de lancer manuellement
+      - 'v*'  # release on version tags (e.g. v2.0.0)
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: windows-latest
-
+  test:
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
-        python-version: '3.11'
+        python-version: '3.13'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
 
-    - name: Build GoXLR_Discord_Sync.exe
-      run: |
-        python -m PyInstaller --onefile --windowed --name "GoXLR_Discord_Sync" --icon=NONE goxlr_discord_sync.pyw
+    - name: Lint
+      run: ruff check .
 
-    - name: Build GoXLR_Setup.exe
+    - name: Tests
+      run: pytest -q
+
+  build:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+
+    - name: Check that the tag matches the version
+      if: startsWith(github.ref, 'refs/tags/')
+      shell: python
       run: |
-        python -m PyInstaller --onefile --windowed --name "GoXLR_Setup" --add-data "dist\GoXLR_Discord_Sync.exe;." --add-data "requirements.txt;." setup_gui.py
+        import os, sys
+        sys.path.insert(0, ".")
+        from goxlr_discord_sync import __version__
+        tag = os.environ["GITHUB_REF_NAME"]
+        if tag != f"v{__version__}":
+            sys.exit(f"Tag {tag} does not match goxlr_discord_sync.__version__ ({__version__})")
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-build.txt
+
+    - name: Build executables
+      run: python build.py all
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       if: startsWith(github.ref, 'refs/tags/')
       with:
         files: |
           dist/GoXLR_Setup.exe
+          dist/SHA256SUMS.txt
+        generate_release_notes: true
         body: |
-          ## GoXLR Discord Sync
-
-          Synchronize your GoXLR Cough button with Discord mute.
-
-          ### Installation
+          ## Installation
           1. Download `GoXLR_Setup.exe`
           2. Run it and follow the setup wizard
-          3. Done!
+          3. Approve the authorization request in Discord on first launch
 
-          ### Requirements
-          - Windows
-          - GoXLR Utility running
-          - Discord desktop app
+          Requirements: Windows 10/11, GoXLR Utility, Discord desktop app.
+          Verify the download with `SHA256SUMS.txt` (`certutil -hashfile GoXLR_Setup.exe SHA256`).
 
-          ### What's New
-          See commit history for changes.
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload artifacts (for manual workflow)
+    - name: Upload artifacts
       if: github.event_name == 'workflow_dispatch'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: GoXLR_Setup
-        path: dist/GoXLR_Setup.exe
+        path: |
+          dist/GoXLR_Setup.exe
+          dist/SHA256SUMS.txt
