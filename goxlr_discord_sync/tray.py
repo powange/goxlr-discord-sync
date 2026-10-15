@@ -6,6 +6,7 @@ import threading
 import pystray
 
 from . import APP_NAME, __version__, autostart, icons, paths
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -21,29 +22,34 @@ class Tray:
     def _menu(self) -> pystray.Menu:
         app = self.app
         item = pystray.MenuItem
+
+        def text(english: str, **values):
+            return lambda _: tr(english, **values)  # evaluated at each display: follows the language
+
         return pystray.Menu(
             item(lambda _: app.engine_summary(), None, enabled=False),
             pystray.Menu.SEPARATOR,
-            item("Cough button → Discord mute", lambda: app.toggle("cough_sync"),
+            item(text("Cough button → Discord mute"), lambda: app.toggle("cough_sync"),
                  checked=lambda _: app.cfg.cough_sync),
-            item(lambda _: f"{app.cfg.deafen_channel} mute → Discord deafen", lambda: app.toggle("chat_sync"),
-                 checked=lambda _: app.cfg.chat_sync),
-            item("Two-way sync (Discord → GoXLR)", lambda: app.toggle("bidirectional"),
+            item(lambda _: tr("{channel} mute → Discord deafen", channel=app.cfg.deafen_channel),
+                 lambda: app.toggle("chat_sync"), checked=lambda _: app.cfg.chat_sync),
+            item(text("Two-way sync (Discord → GoXLR)"), lambda: app.toggle("bidirectional"),
                  checked=lambda _: app.cfg.bidirectional),
             pystray.Menu.SEPARATOR,
-            item("Status", lambda: app.show_status(), default=True),
-            item("Settings…", lambda: app.open_settings()),
-            item(AUTOSTART_LABEL, lambda: app.toggle_autostart(), checked=lambda _: _safe_autostart()),
-            item("Authorize Discord again", lambda: app.reauthorize()),
-            item("Open log", lambda: app.open_log()),
-            item(lambda _: f"Install update v{app.update_info.version}…", lambda: app.install_update(),
-                 visible=lambda _: app.can_self_update),
-            item(lambda _: f"Update available: v{app.update_info.version}", lambda: app.open_update(),
+            item(text("Status"), lambda: app.show_status(), default=True),
+            item(text("Settings…"), lambda: app.open_settings()),
+            item(text(AUTOSTART_LABEL), lambda: app.toggle_autostart(), checked=lambda _: _safe_autostart()),
+            item(text("Authorize Discord again"), lambda: app.reauthorize()),
+            item(text("Open log"), lambda: app.open_log()),
+            item(lambda _: tr("Install update v{version}…", version=app.update_info.version),
+                 lambda: app.install_update(), visible=lambda _: app.can_self_update),
+            item(lambda _: tr("Update available: v{version}", version=app.update_info.version),
+                 lambda: app.open_update(),
                  visible=lambda _: app.update_info is not None and not app.can_self_update),
-            item("Check for updates", lambda: app.check_updates_now()),
-            item(f"About (v{__version__})", lambda: app.open_about()),
+            item(text("Check for updates"), lambda: app.check_updates_now()),
+            item(text("About (v{version})", version=__version__), lambda: app.open_about()),
             pystray.Menu.SEPARATOR,
-            item("Quit", lambda: app.quit()),
+            item(text("Quit"), lambda: app.quit()),
         )
 
     def start(self) -> None:

@@ -25,6 +25,7 @@ from . import (
     updates,
 )
 from .engine import Engine
+from .i18n import set_language, tr
 
 log = logging.getLogger(__name__)
 
@@ -84,9 +85,10 @@ class App:
         return bool(self.engine and self.engine.status.voice_channel)
 
     def _notify_update(self, release: updates.Release) -> None:
-        action = "Install update" if self.can_self_update else "Update available"
-        self._notify("Update available", f"Version {release.version} is available. "
-                     f"Choose “{action}” in the tray menu.")
+        action = tr("Install update") if self.can_self_update else tr("Update available")
+        self._notify(tr("Update available"),
+                     tr("Version {version} is available. Choose “{action}” in the tray menu.",
+                        version=release.version, action=action))
 
     def _notify(self, title: str, message: str) -> None:
         if self.tray is not None:
@@ -96,6 +98,8 @@ class App:
         return self.engine.summary() if self.engine else "Starting..."
 
     def _apply(self, cfg: config.Config, credentials_changed: bool = False) -> None:
+        if cfg.language != self.cfg.language:
+            log.info("Interface language: %s", set_language(cfg.language))
         self.cfg = cfg
         self.engine.apply_config(cfg, credentials_changed)
         self._refresh_tray()
@@ -141,7 +145,8 @@ class App:
         previous = state.get("last_run_version")
         if previous != __version__:
             if previous and updates.is_newer(__version__, previous):
-                self._notify("Update installed", f"{APP_NAME} is now version {__version__}.")
+                self._notify(tr("Update installed"), tr("{app} is now version {version}.",
+                                                         app=APP_NAME, version=__version__))
             state["last_run_version"] = __version__
             config.save_state(state)
 
@@ -167,7 +172,7 @@ class App:
             except Exception as e:
                 log.exception("Update check failed")
                 if manual:
-                    self._notify("Update check failed", str(e))
+                    self._notify(tr("Update check failed"), str(e))
 
     async def _check_updates(self, manual: bool) -> None:
         latest = await self._fetch_release()
@@ -176,7 +181,7 @@ class App:
         if latest is None:
             config.save_state(state)
             if manual:
-                self._notify("Update check failed", "GitHub could not be reached. Try again later.")
+                self._notify(tr("Update check failed"), tr("GitHub could not be reached. Try again later."))
             return
         state["latest_release"] = latest.to_dict()
         if not updates.is_newer(latest.version, __version__):
@@ -184,7 +189,8 @@ class App:
             config.save_state(state)
             self._refresh_tray()
             if manual:
-                self._notify("No update available", f"You're running the latest version ({__version__}).")
+                self._notify(tr("No update available"),
+                             tr("You're running the latest version ({version}).", version=__version__))
             return
         self.update_info = latest
         self._refresh_tray()
@@ -233,7 +239,7 @@ class App:
                 autostart.enable()
         except OSError as e:
             log.error("Cannot change autostart: %s", e)
-            self._notify("Autostart", f"Could not change the setting: {e}")
+            self._notify(tr("Autostart"), tr("Could not change the setting: {error}", error=e))
         self._in_loop(self._refresh_tray)
 
     def show_status(self) -> None:
@@ -264,24 +270,25 @@ class App:
         try:
             notes = updates.notes_excerpt(release.notes)
             question = (
-                f"{APP_NAME} {release.version} is available (you have {__version__}).\n\n"
+                tr("{app} {version} is available (you have {current}).",
+                   app=APP_NAME, version=release.version, current=__version__) + "\n\n"
                 + (f"{notes}\n\n" if notes else "")
-                + ("You are in a voice call: mute sync stops for a few seconds during the update.\n\n"
+                + (tr("You are in a voice call: mute sync stops for a few seconds during the update.") + "\n\n"
                    if self.in_call else "")
-                + "Install it now? The application closes for a few seconds and starts again on its own."
+                + tr("Install it now? The application closes for a few seconds and starts again on its own.")
             )
-            if not system.message_box(question, title=f"{APP_NAME} update", ask=True):
+            if not system.message_box(question, title=tr("{app} update", app=APP_NAME), ask=True):
                 log.info("Update to %s postponed by the user", release.version)
                 return
-            self._notify("Downloading update", f"Downloading version {release.version}…")
+            self._notify(tr("Downloading update"), tr("Downloading version {version}…", version=release.version))
             installer = updates.download_setup(release)
             log.info("Starting the installer to update to %s", release.version)
             system.launch_detached([str(installer), "--update", "--target", sys.executable])
             self.quit()
         except (updates.UpdateError, OSError) as e:
             log.error("Update failed: %s", e)
-            if system.message_box(f"The update could not be installed:\n\n{e}\n\n"
-                                  "Open the download page instead?", title=f"{APP_NAME} update",
+            if system.message_box(tr("The update could not be installed:") + f"\n\n{e}\n\n"
+                                  + tr("Open the download page instead?"), title=tr("{app} update", app=APP_NAME),
                                   error=True, ask=True):
                 webbrowser.open(release.page_url)
         finally:
@@ -302,16 +309,17 @@ class App:
 
 def uninstall() -> None:
     """GoXLR_Discord_Sync.exe --uninstall, started from Settings > Apps."""
-    if not system.message_box(f"Uninstall {APP_NAME}?\n\nThe application stops, its autostart is removed "
-                              "and the executable is deleted.", ask=True):
+    if not system.message_box(tr("Uninstall {app}?", app=APP_NAME) + "\n\n"
+                              + tr("The application stops, its autostart is removed and the executable is deleted."),
+                              ask=True):
         return
     remove_settings = system.message_box(
-        f"Also delete your settings and Discord credentials?\n\n({paths.data_dir()})", ask=True)
+        tr("Also delete your settings and Discord credentials?") + f"\n\n({paths.data_dir()})", ask=True)
     installer.stop_other_instances()
     exe = paths.app_dir() / paths.APP_EXE_NAME if paths.IS_FROZEN else None
     report = installer.remove_installation(exe, remove_settings, delete_exe=installer.schedule_self_delete)
     log.info("Uninstalled: %s", "; ".join(report))
-    system.message_box("\n".join(report), title=f"{APP_NAME} uninstalled")
+    system.message_box("\n".join(report), title=tr("{app} uninstalled", app=APP_NAME))
 
 
 def _parse_args(argv):
@@ -326,6 +334,7 @@ def _parse_args(argv):
 def main(argv=None) -> None:
     system.fix_std_streams()
     args = _parse_args(argv)
+    set_language(config.load().language)
 
     if args.settings:
         logging_setup.setup("settings.log", console=system.has_console())
@@ -348,7 +357,8 @@ def main(argv=None) -> None:
     instance = system.SingleInstance()
     if not instance.acquire():
         log.info("Another instance is already running")
-        system.message_box(f"{APP_NAME} is already running.\n\nLook for its icon in the system tray.")
+        system.message_box(tr("{app} is already running.", app=APP_NAME) + "\n\n"
+                           + tr("Look for its icon in the system tray."))
         return
 
     try:
@@ -370,8 +380,8 @@ def main(argv=None) -> None:
     if not cfg.client_id or not secure_store.get_client_secret():
         log.warning("Discord application not configured")
         if system.message_box(
-            f"{APP_NAME} needs your Discord application details before it can work.\n\n"
-            "Open the settings now?",
+            tr("{app} needs your Discord application details before it can work.", app=APP_NAME) + "\n\n"
+            + tr("Open the settings now?"),
             ask=True,
         ):
             system.launch_detached(paths.self_command("--settings"))
@@ -380,6 +390,6 @@ def main(argv=None) -> None:
         App(cfg).run()
     except Exception as e:
         log.exception("Fatal error")
-        system.message_box(f"{APP_NAME} stopped because of an unexpected error:\n\n{e}\n\n"
-                           f"Details are in {paths.log_file()}", error=True)
+        system.message_box(tr("{app} stopped because of an unexpected error:", app=APP_NAME) + f"\n\n{e}\n\n"
+                           + tr("Details are in {path}", path=paths.log_file()), error=True)
         raise

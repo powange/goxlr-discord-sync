@@ -69,6 +69,7 @@ class Config:
     oauth_port: int = DEFAULT_OAUTH_PORT
     # Discord action -> GoXLR button that triggers it, e.g. {"leave_voice": "SamplerClear"}
     button_actions: dict[str, str] = field(default_factory=dict)
+    language: str = "auto"  # auto | en | fr
 
     @property
     def redirect_uri(self) -> str:
@@ -101,6 +102,8 @@ class Config:
             cfg.goxlr_url = DEFAULT_GOXLR_URL
         if not cfg.deafen_channel:
             cfg.deafen_channel = "Chat"
+        if cfg.language not in ("auto", "en", "fr"):
+            cfg.language = "auto"
         return cfg
 
     def to_dict(self) -> dict:

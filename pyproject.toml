@@ -17,3 +17,6 @@ ignore = ["SIM105"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff.lint.per-file-ignores]
+"goxlr_discord_sync/i18n_fr.py" = ["E501"]  # one translation per line reads better

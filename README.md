@@ -17,6 +17,7 @@ Mirror your GoXLR mute controls to Discord through Discord's local RPC API.
 - 🔐 Client secret and tokens encrypted with Windows DPAPI
 - 🔔 Optional notifications when a connection is lost or restored, and when an update is available
 - 🚀 Starts with Windows (or on login under Linux)
+- 🌍 English and French interface, following the Windows display language (or set in Settings › Behaviour)
 
 ## 📥 Installation
 

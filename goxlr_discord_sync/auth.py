@@ -12,6 +12,7 @@ import webbrowser
 import requests
 
 from . import secure_store
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -78,12 +79,12 @@ def check_credentials(client_id: str, client_secret: str) -> tuple[bool, str]:
             timeout=HTTP_TIMEOUT,
         )
     except requests.RequestException as e:
-        return False, f"Cannot reach Discord ({e.__class__.__name__}). Check your internet connection."
+        return False, tr("Cannot reach Discord ({error}). Check your internet connection.", error=e.__class__.__name__)
     if response.status_code == 200:
-        return True, "The Client ID and Client Secret are valid."
+        return True, tr("The Client ID and Client Secret are valid.")
     if response.status_code == 401:
-        return False, "Discord rejected this Client ID / Client Secret pair. Copy both values again."
-    return False, f"Discord answered HTTP {response.status_code}. Try again in a moment."
+        return False, tr("Discord rejected this Client ID / Client Secret pair. Copy both values again.")
+    return False, tr("Discord answered HTTP {status}. Try again in a moment.", status=response.status_code)
 
 
 def token_is_fresh(token: dict | None, now: float | None = None) -> bool:

@@ -25,6 +25,7 @@ from . import auth, secure_store
 from .config import BUTTON_ACTIONS, Config
 from .discord_ipc import DiscordClosed, DiscordIPC, DiscordUnavailable, RPCError
 from .goxlr import GoXLRClient, GoXLRStatus, MixerSnapshot
+from .i18n import tr
 from .sync_logic import desired_flag, goxlr_state_for, plan_discord_update
 
 log = logging.getLogger(__name__)
@@ -188,7 +189,7 @@ class Engine:
                 timer.cancel()
             if name in self._loss_notified:
                 self._loss_notified.discard(name)
-                self._notify(f"{name} reconnected", "Synchronisation is running again.")
+                self._notify(tr("{name} reconnected", name=name), tr("Synchronisation is running again."))
         elif name in self._ever_connected and name not in self._loss_timers:
             loop = asyncio.get_running_loop()
             self._loss_timers[name] = loop.call_later(LOSS_NOTIFY_DELAY, self._loss_fire, name)
@@ -198,7 +199,8 @@ class Engine:
         up = self.status.goxlr_connected if name == "GoXLR Utility" else self.status.discord_connected
         if not up:
             self._loss_notified.add(name)
-            self._notify(f"{name} disconnected", "Mute synchronisation is paused until it comes back.")
+            self._notify(tr("{name} disconnected", name=name),
+                         tr("Mute synchronisation is paused until it comes back."))
 
     # --- GoXLR side ------------------------------------------------------------
 
@@ -392,7 +394,7 @@ class Engine:
             raise NeedsUser("Discord authorization required: choose 'Authorize Discord' in the tray menu")
         self._may_prompt = False
         self._set(auth="authorizing", detail="Waiting for your approval in Discord")
-        self._notify("Discord authorization", "Approve GoXLR Discord Sync in the Discord window.")
+        self._notify(tr("Discord authorization"), tr("Approve GoXLR Discord Sync in the Discord window."))
         try:
             code = await ipc.authorize(auth.SCOPES)
             return await self.tokens.exchange(cfg.client_id, secret, code, [cfg.redirect_uri, None])
@@ -414,7 +416,7 @@ class Engine:
             log.warning("Code exchange failed (%s), trying the browser", e)
 
         self._set(detail="Waiting for authorization in your browser")
-        self._notify("Discord authorization", "Approve GoXLR Discord Sync in your browser.")
+        self._notify(tr("Discord authorization"), tr("Approve GoXLR Discord Sync in your browser."))
         self._cancel_browser.clear()
         try:
             code = await asyncio.to_thread(
@@ -620,23 +622,23 @@ class Engine:
     def summary(self) -> str:
         st = self.status
         if st.auth == "not_configured":
-            return "Setup required"
+            return tr("Setup required")
         if st.auth == "authorizing":
-            return "Waiting for Discord authorization"
+            return tr("Waiting for Discord authorization")
         if st.auth == "required":
-            return "Discord authorization required"
+            return tr("Discord authorization required")
         if not st.discord_connected:
-            return "Waiting for Discord"
+            return tr("Waiting for Discord")
         if not st.goxlr_connected:
-            return "Waiting for GoXLR Utility"
+            return tr("Waiting for GoXLR Utility")
         if st.missing_device:
-            return f"GoXLR {st.missing_device} not connected"
+            return tr("GoXLR {serial} not connected", serial=st.missing_device)
         if st.serial is None:
-            return "No GoXLR connected"
-        mic = "Mic muted" if st.discord_mute else "Mic live"
-        audio = "Deafened" if st.discord_deaf else "Hearing"
+            return tr("No GoXLR connected")
+        mic = tr("Mic muted") if st.discord_mute else tr("Mic live")
+        audio = tr("deafened") if st.discord_deaf else tr("hearing")
         where = f" - {st.voice_channel}" if st.voice_channel else ""
-        return f"{mic}, {audio.lower()}{where}"
+        return f"{mic}, {audio}{where}"
 
     def icon_spec(self) -> tuple[str, str, bool]:
         """(colour, glyph, slashed) for icons.render()."""
@@ -660,20 +662,21 @@ class Engine:
     def details(self) -> str:
         st = self.status
         if st.goxlr_connected and st.serial:
-            goxlr = f"connected ({st.serial})"
+            goxlr = tr("connected ({serial})", serial=st.serial)
         elif st.missing_device:
-            goxlr = f"connected, but GoXLR {st.missing_device} is not plugged in"
+            goxlr = tr("connected, but GoXLR {serial} is not plugged in", serial=st.missing_device)
         else:
-            goxlr = "connected, no device" if st.goxlr_connected else "not available"
-        discord = "connected" if st.discord_connected else self.summary().lower()
-        lines = [f"GoXLR Utility: {goxlr}", f"Discord: {discord}"]
+            goxlr = tr("connected, no device") if st.goxlr_connected else tr("not available")
+        discord = tr("connected") if st.discord_connected else self.summary()
+        lines = [tr("GoXLR Utility: {state}", state=goxlr), tr("Discord: {state}", state=discord)]
         if st.discord_connected:
-            lines.append(f"Mic: {'muted' if st.discord_mute else 'live'} · "
-                         f"Audio: {'deafened' if st.discord_deaf else 'hearing'}")
-            lines.append(f"Voice channel: {st.voice_channel or 'none'}")
+            lines.append(tr("Mic: {mic} · Audio: {audio}",
+                            mic=tr("muted") if st.discord_mute else tr("live"),
+                            audio=tr("deafened") if st.discord_deaf else tr("hearing")))
+            lines.append(tr("Voice channel: {channel}", channel=st.voice_channel or tr("none")))
         if st.goxlr_connected and self.cfg.chat_sync:
-            where = f"fader {st.deafen_fader}" if st.deafen_fader else "not on a fader"
-            lines.append(f"{self.cfg.deafen_channel} channel: {where}")
+            where = tr("fader {fader}", fader=st.deafen_fader) if st.deafen_fader else tr("not on a fader")
+            lines.append(tr("{channel} channel: {where}", channel=self.cfg.deafen_channel, where=where))
         if st.last_latency_ms is not None:
-            lines.append(f"Last sync: {st.last_latency_ms:.0f} ms")
+            lines.append(tr("Last sync: {ms} ms", ms=f"{st.last_latency_ms:.0f}"))
         return "\n".join(lines)

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import APP_NAME, REPO_URL, autostart, config, paths, secure_store, system
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -147,34 +148,34 @@ def remove_installation(exe: Path | None, remove_settings: bool,
     report = []
     try:
         autostart.disable()
-        report.append("✓ Autostart removed")
+        report.append("✓ " + tr("Autostart removed"))
     except OSError as e:
-        report.append(f"⚠ Autostart: {e}")
+        report.append("⚠ " + tr("Autostart: {error}", error=e))
     try:
         unregister_uninstall()
     except OSError as e:
-        report.append(f"⚠ Apps list entry: {e}")
+        report.append("⚠ " + tr("Apps list entry: {error}", error=e))
     if exe is not None and exe.name.lower() == paths.APP_EXE_NAME.lower() and exe.exists():
         (exe.parent / "requirements.txt").unlink(missing_ok=True)  # left by setup 1.x
         if delete_exe(exe):
             if exe.exists():  # deleted after this process exits
-                report.append(f"✓ Application removed from {exe.parent}")
+                report.append("✓ " + tr("Application removed from {path}", path=exe.parent))
             else:
                 try:
                     exe.parent.rmdir()  # only when empty
                 except OSError:
                     pass
-                report.append(f"✓ Application removed from {exe.parent}")
+                report.append("✓ " + tr("Application removed from {path}", path=exe.parent))
         else:
-            report.append(f"⚠ Could not delete {exe}")
+            report.append("⚠ " + tr("Could not delete {path}", path=exe))
     elif exe is not None:
-        report.append(f"Application not found in {exe.parent}")
+        report.append(tr("Application not found in {path}", path=exe.parent))
     if remove_settings:
         secure_store.clear_all()
         shutil.rmtree(paths.data_dir(), ignore_errors=True)
-        report.append("✓ Settings and credentials deleted")
+        report.append("✓ " + tr("Settings and credentials deleted"))
     else:
-        report.append(f"Settings kept in {paths.data_dir()}")
+        report.append(tr("Settings kept in {path}", path=paths.data_dir()))
     return report
 
 
@@ -234,13 +235,13 @@ def perform_update(
     try:
         copy_with_retry(bundled, target, attempts=20)  # the app quits by itself
     except PermissionError:
-        emit("Stopping the application…")
+        emit(tr("Stopping the application…"))
         stop()
         copy_with_retry(bundled, target)
 
-    emit("Starting the new version…")
+    emit(tr("Starting the new version…"))
     launch([str(target)])
-    emit("Checking that the new version starts…")
+    emit(tr("Checking that the new version starts…"))
     if started(version):
         backup.unlink(missing_ok=True)
         log.info("Updated to %s", version)
@@ -248,10 +249,12 @@ def perform_update(
 
     log.error("Version %s did not start, restoring the previous version", version)
     if not backup.exists():
-        raise UpdateRolledBack(f"Version {version} did not start and no previous version was kept.")
-    emit("The new version did not start. Restoring the previous version…")
+        raise UpdateRolledBack(tr("Version {version} did not start and no previous version was kept.",
+                                  version=version))
+    emit(tr("The new version did not start. Restoring the previous version…"))
     stop()
     copy_with_retry(backup, target)
     backup.unlink(missing_ok=True)
     launch([str(target)])
-    raise UpdateRolledBack(f"Version {version} did not start, so the previous version was restored.")
+    raise UpdateRolledBack(tr("Version {version} did not start, so the previous version was restored.",
+                              version=version))
