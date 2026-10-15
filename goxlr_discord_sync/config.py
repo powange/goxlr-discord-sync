@@ -106,6 +106,10 @@ class Config:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    def updated(self, **changes) -> "Config":
+        """A validated copy with these fields changed (unknown or invalid values are ignored)."""
+        return Config.from_dict({**self.to_dict(), **changes})
+
 
 def load() -> Config:
     data = paths.read_json(paths.config_file())

@@ -116,3 +116,11 @@ def test_unreadable_secrets_are_not_overwritten_by_a_token_save():
     assert paths.secrets_file().read_bytes() == b"PLAIN1{broken"
     secure_store.set_client_secret("new")  # entering the secret again repairs it
     assert secure_store.get_client_secret() == "new"
+
+
+def test_updated_overrides_stored_values():
+    stored = config.Config(client_id="1", button_actions={"toggle_mute": "Bleep"})
+    new = stored.updated(button_actions={"leave_voice": "SamplerClear"}, cough_sync=False, oauth_port=0)
+    assert new.button_actions == {"leave_voice": "SamplerClear"}  # 2.3.0-2.4.0 kept the old value
+    assert new.cough_sync is False and new.client_id == "1"
+    assert new.oauth_port == config.DEFAULT_OAUTH_PORT  # invalid values are ignored

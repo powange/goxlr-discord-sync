@@ -212,17 +212,16 @@ class SettingsWindow:
         if button_actions is None:
             return
         serial = self.serial_var.get().strip()
-        cfg = config.Config.from_dict({
-            "button_actions": button_actions,
-            **self.cfg.to_dict(),
-            "client_id": creds.client_id,
-            "goxlr_url": url,
-            "mixer_serial": "" if serial == FIRST_DEVICE else serial,
-            "deafen_channel": self.channel_var.get(),
-            "mute_triggers": self.mute_triggers.selected,
-            "deafen_triggers": self.deafen_triggers.selected,
+        cfg = self.cfg.updated(
+            client_id=creds.client_id,
+            goxlr_url=url,
+            mixer_serial="" if serial == FIRST_DEVICE else serial,
+            deafen_channel=self.channel_var.get(),
+            mute_triggers=self.mute_triggers.selected,
+            deafen_triggers=self.deafen_triggers.selected,
+            button_actions=button_actions,
             **{name: var.get() for name, var in self.bool_vars.items()},
-        })
+        )
         try:
             if cfg.client_id != self.cfg.client_id:
                 secure_store.set_token(None)
