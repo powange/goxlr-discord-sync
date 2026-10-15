@@ -6,6 +6,7 @@ chosen folder. From source: installs the Python dependencies instead.
 Both then configure the Discord application and the autostart.
 """
 
+import argparse
 import shutil
 import subprocess
 import sys
@@ -377,10 +378,66 @@ class SetupWizard:
         self.root.destroy()
 
 
-def main() -> None:
+class UpdateWindow:
+    """Unattended update started by the application (--update): replace the exe, start it again."""
+
+    def __init__(self, root: tk.Tk, target: Path):
+        self.root = root
+        self.target = target
+        root.title(f"{APP_NAME} – Update")
+        root.resizable(False, False)
+        frame = ttk.Frame(root, padding=24)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=f"Updating {APP_NAME} to version {__version__}…").pack(anchor=tk.W)
+        self.status = ttk.Label(frame, text="Waiting for the application to close…", foreground="gray")
+        self.status.pack(anchor=tk.W, pady=(6, 12))
+        progress = ttk.Progressbar(frame, mode="indeterminate", length=360)
+        progress.pack(fill=tk.X)
+        progress.start()
+        run_in_thread(root, self.work, self.done, on_progress=lambda text: self.status.configure(text=text))
+
+    def work(self, emit) -> None:
+        if BUNDLED_EXE is None or not BUNDLED_EXE.exists():
+            raise RuntimeError("This installer does not contain the application")
+        try:
+            copy_with_retry(BUNDLED_EXE, self.target, attempts=20)  # the app quits by itself
+        except PermissionError:
+            emit("Stopping the application…")
+            stop_running_app()
+            copy_with_retry(BUNDLED_EXE, self.target)
+        emit("Starting the new version…")
+        system.launch_detached([str(self.target)])
+
+    def done(self, result) -> None:
+        if isinstance(result, Exception):
+            messagebox.showerror(
+                "Update failed",
+                f"The update could not be installed:\n{result}\n\n"
+                f"Run GoXLR_Setup.exe again, or download it from {REPO_URL}/releases",
+                parent=self.root,
+            )
+        self.root.destroy()
+
+
+def update_target(value: str) -> Path:
+    target = Path(value)
+    if target.name.lower() != paths.APP_EXE_NAME.lower():
+        raise argparse.ArgumentTypeError(f"--target must point to {paths.APP_EXE_NAME}")
+    return target
+
+
+def main(argv=None) -> None:
     system.fix_std_streams()
+    parser = argparse.ArgumentParser(prog="GoXLR_Setup")
+    parser.add_argument("--update", action="store_true", help="replace the installed application and restart it")
+    parser.add_argument("--target", type=update_target, help="installed GoXLR_Discord_Sync.exe (with --update)")
+    args = parser.parse_args(argv)
     root = tk.Tk()
-    SetupWizard(root)
+    if args.update:
+        target = args.target or paths.default_install_dir() / paths.APP_EXE_NAME
+        UpdateWindow(root, target)
+    else:
+        SetupWizard(root)
     root.mainloop()
 
 

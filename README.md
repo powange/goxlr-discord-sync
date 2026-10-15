@@ -23,7 +23,7 @@ Mirror your GoXLR mute controls to Discord through Discord's local RPC API.
 2. Run it and follow the wizard
 3. On first launch, click **Authorize** in the window that Discord shows
 
-Updating: run the new `GoXLR_Setup.exe`. It stops the running version, replaces it and keeps your settings.
+Updating: when a new version is published, a notification tells you. Choose **Install update** in the tray menu and confirm: the app downloads the new installer, checks it against `SHA256SUMS.txt`, closes, updates itself and starts again. Nothing is installed without your confirmation. You can also run a newer `GoXLR_Setup.exe` by hand; your settings are kept either way.
 
 ### Requirements
 
@@ -57,6 +57,7 @@ Right-click the tray icon:
 | Start with Windows | Toggle the autostart |
 | Authorize Discord again | Start a new authorization (e.g. after revoking it in Discord) |
 | Open log | Open the log file |
+| Install update vX… | Shown when a new version exists: confirm to download and install it |
 
 ### Which GoXLR mute states count?
 

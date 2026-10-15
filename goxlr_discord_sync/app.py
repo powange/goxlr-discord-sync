@@ -5,6 +5,7 @@ import asyncio
 import dataclasses
 import logging
 import os
+import sys
 import threading
 import time
 import webbrowser
@@ -35,7 +36,8 @@ class App:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.engine: Engine | None = None
         self.tray = None
-        self.update_info: tuple[str, str] | None = None
+        self.update_info: updates.Release | None = None
+        self._updating = False
         self._main_task: asyncio.Task | None = None
 
     def run(self) -> None:
@@ -51,6 +53,7 @@ class App:
         self.tray.start()
         self._restore_update_info()
         self._refresh_tray()
+        self._announce_new_version()
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(self.engine.run(), name="engine")
@@ -104,10 +107,19 @@ class App:
     # --- updates -----------------------------------------------------------------
 
     def _restore_update_info(self) -> None:
+        release = updates.Release.from_dict(config.load_state().get("latest_release"))
+        if release and updates.is_newer(release.version, __version__):
+            self.update_info = release
+
+    def _announce_new_version(self) -> None:
+        """Tell the user once that an update was installed."""
         state = config.load_state()
-        version, url = state.get("latest_version"), state.get("latest_url")
-        if version and url and updates.is_newer(version, __version__):
-            self.update_info = (version, url)
+        previous = state.get("last_run_version")
+        if previous != __version__:
+            if previous and updates.is_newer(__version__, previous):
+                self._notify("Update installed", f"{APP_NAME} is now version {__version__}.")
+            state["last_run_version"] = __version__
+            config.save_state(state)
 
     async def _update_loop(self) -> None:
         await asyncio.sleep(20)
@@ -117,16 +129,22 @@ class App:
                 latest = await asyncio.to_thread(updates.fetch_latest_release)
                 state["last_update_check"] = time.time()
                 if latest:
-                    state["latest_version"], state["latest_url"] = latest
-                    if updates.is_newer(latest[0], __version__):
+                    state["latest_release"] = latest.to_dict()
+                    if updates.is_newer(latest.version, __version__):
                         self.update_info = latest
                         self._refresh_tray()
-                        if state.get("notified_version") != latest[0]:
-                            state["notified_version"] = latest[0]
-                            self._notify("Update available", f"Version {latest[0]} is available. "
-                                         "Use the tray menu to download it.")
+                        if state.get("notified_version") != latest.version:
+                            state["notified_version"] = latest.version
+                            action = "Install update" if self.can_self_update else "Update available"
+                            self._notify("Update available", f"Version {latest.version} is available. "
+                                         f"Choose “{action}” in the tray menu.")
                 config.save_state(state)
             await asyncio.sleep(3600)
+
+    @property
+    def can_self_update(self) -> bool:
+        """Installed executables update through the release installer; source checkouts use git."""
+        return paths.IS_FROZEN and paths.IS_WINDOWS and bool(self.update_info and self.update_info.installable)
 
     # --- tray actions (called from the tray thread) --------------------------------
 
@@ -168,7 +186,39 @@ class App:
 
     def open_update(self) -> None:
         if self.update_info:
-            webbrowser.open(self.update_info[1])
+            webbrowser.open(self.update_info.page_url)
+
+    def install_update(self) -> None:
+        """Ask for confirmation, download the installer and hand over to it."""
+        if self._updating or not self.update_info:
+            return
+        self._updating = True
+        threading.Thread(target=self._install_update, args=(self.update_info,), name="update", daemon=True).start()
+
+    def _install_update(self, release: updates.Release) -> None:
+        try:
+            notes = updates.notes_excerpt(release.notes)
+            question = (
+                f"{APP_NAME} {release.version} is available (you have {__version__}).\n\n"
+                + (f"{notes}\n\n" if notes else "")
+                + "Install it now? The application closes for a few seconds and starts again on its own."
+            )
+            if not system.message_box(question, title=f"{APP_NAME} update", ask=True):
+                log.info("Update to %s postponed by the user", release.version)
+                return
+            self._notify("Downloading update", f"Downloading version {release.version}…")
+            installer = updates.download_setup(release)
+            log.info("Starting the installer to update to %s", release.version)
+            system.launch_detached([str(installer), "--update", "--target", sys.executable])
+            self.quit()
+        except (updates.UpdateError, OSError) as e:
+            log.error("Update failed: %s", e)
+            if system.message_box(f"The update could not be installed:\n\n{e}\n\n"
+                                  "Open the download page instead?", title=f"{APP_NAME} update",
+                                  error=True, ask=True):
+                webbrowser.open(release.page_url)
+        finally:
+            self._updating = False
 
     def open_about(self) -> None:
         webbrowser.open(REPO_URL)
