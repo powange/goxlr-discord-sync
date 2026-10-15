@@ -9,14 +9,15 @@ from . import APP_NAME, paths
 
 log = logging.getLogger(__name__)
 
-_MUTEX_NAME = "Local\\GoXLRDiscordSync.SingleInstance"
+_MUTEX_PREFIX = "Local\\GoXLRDiscordSync."
 _ERROR_ALREADY_EXISTS = 183
 
 
 class SingleInstance:
     """Held for the whole process lifetime; acquire() is False if another copy runs."""
 
-    def __init__(self):
+    def __init__(self, name: str = "SingleInstance"):
+        self.name = name
         self._handle = None
 
     def acquire(self) -> bool:
@@ -25,7 +26,7 @@ class SingleInstance:
 
             kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
             kernel32.CreateMutexW.restype = ctypes.c_void_p
-            handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+            handle = kernel32.CreateMutexW(None, False, _MUTEX_PREFIX + self.name)
             if not handle:
                 return True  # cannot tell: do not block startup
             if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
@@ -35,7 +36,7 @@ class SingleInstance:
             return True
         import fcntl
 
-        lock = open(paths.data_dir() / "instance.lock", "w")  # noqa: SIM115 (kept open on purpose)
+        lock = open(paths.data_dir() / f"{self.name}.lock", "w")  # noqa: SIM115 (kept open on purpose)
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:

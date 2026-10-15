@@ -73,18 +73,26 @@ def _decode(blob: bytes) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def load() -> dict:
+class UnreadableSecrets(OSError):
+    """secrets.dat exists but cannot be read: never overwrite it blindly."""
+
+
+def _load_strict() -> dict:
     try:
         blob = paths.secrets_file().read_bytes()
     except FileNotFoundError:
         return {}
-    except OSError as e:
-        log.warning("Cannot read secrets: %s", e)
-        return {}
     try:
         return _decode(blob)
     except (OSError, ValueError) as e:
-        log.warning("Secrets file is unreadable, ignoring it: %s", e)
+        raise UnreadableSecrets(f"Secrets file is unreadable: {e}") from e
+
+
+def load() -> dict:
+    try:
+        return _load_strict()
+    except OSError as e:
+        log.warning("%s", e)
         return {}
 
 
@@ -97,7 +105,10 @@ def get_client_secret() -> str:
 
 
 def set_client_secret(secret: str) -> None:
-    data = load()
+    try:
+        data = _load_strict()
+    except UnreadableSecrets:
+        data = {}  # a new secret replaces an unreadable file on purpose
     if data.get("client_secret") != secret:
         # A new application secret invalidates tokens issued for the old one.
         data.pop("token", None)
@@ -111,7 +122,7 @@ def get_token() -> dict | None:
 
 
 def set_token(token: dict | None) -> None:
-    data = load()
+    data = _load_strict()  # raises instead of wiping the client secret
     if token is None:
         data.pop("token", None)
     else:

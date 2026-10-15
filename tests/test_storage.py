@@ -1,5 +1,6 @@
 import json
 import sys
+import uuid
 
 import pytest
 
@@ -91,6 +92,27 @@ def test_icons(tmp_path):
 def test_single_instance_lock():
     from goxlr_discord_sync.system import SingleInstance
 
-    first, second = SingleInstance(), SingleInstance()
+    name = f"test-{uuid.uuid4().hex}"  # never the real app's lock: it may be running
+    first, second = SingleInstance(name), SingleInstance(name)
     assert first.acquire()
     assert not second.acquire()
+
+
+def test_named_instances_are_independent():
+    from goxlr_discord_sync.system import SingleInstance
+
+    base = f"test-{uuid.uuid4().hex}"
+    app, settings, settings2 = SingleInstance(base), SingleInstance(base + "-s"), SingleInstance(base + "-s")
+    assert app.acquire() and settings.acquire()
+    assert not settings2.acquire()
+
+
+def test_unreadable_secrets_are_not_overwritten_by_a_token_save():
+    import pytest as _pytest
+
+    paths.secrets_file().write_bytes(b"PLAIN1{broken")
+    with _pytest.raises(OSError):
+        secure_store.set_token({"access_token": "t"})
+    assert paths.secrets_file().read_bytes() == b"PLAIN1{broken"
+    secure_store.set_client_secret("new")  # entering the secret again repairs it
+    assert secure_store.get_client_secret() == "new"

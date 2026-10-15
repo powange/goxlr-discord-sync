@@ -114,17 +114,16 @@ def download_setup(release: Release, dest_dir: Path | None = None, timeout: floa
     """Download the release installer and check it against SHA256SUMS.txt."""
     if not release.installable:
         raise UpdateError("This release has no installer to download")
+    dest_dir = dest_dir or Path(tempfile.gettempdir()) / "goxlr-discord-sync-update"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / f"GoXLR_Setup-{release.version}.exe"
+    partial = target.with_suffix(".part")
     try:
         sums = requests.get(release.sums_url, timeout=timeout)
         sums.raise_for_status()
         expected = expected_sha256(sums.text, SETUP_ASSET)
         if expected is None:
             raise UpdateError(f"{SUMS_ASSET} does not list {SETUP_ASSET}")
-
-        dest_dir = dest_dir or Path(tempfile.gettempdir()) / "goxlr-discord-sync-update"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        target = dest_dir / f"GoXLR_Setup-{release.version}.exe"
-        partial = target.with_suffix(".part")
         digest = hashlib.sha256()
         size = 0
         with requests.get(release.setup_url, stream=True, timeout=timeout) as response:
@@ -136,12 +135,14 @@ def download_setup(release: Release, dest_dir: Path | None = None, timeout: floa
                         raise UpdateError("The installer is unexpectedly large")
                     digest.update(chunk)
                     f.write(chunk)
+        if digest.hexdigest() != expected:
+            raise UpdateError("The downloaded installer is corrupted (checksum mismatch)")
+        partial.replace(target)
     except requests.RequestException as e:
-        raise UpdateError(f"Download failed: {e}") from e
-
-    if digest.hexdigest() != expected:
         partial.unlink(missing_ok=True)
-        raise UpdateError("The downloaded installer is corrupted (checksum mismatch)")
-    partial.replace(target)
+        raise UpdateError(f"Download failed: {e}") from e
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
     log.info("Downloaded %s (%d KiB, checksum OK)", target, size // 1024)
     return target

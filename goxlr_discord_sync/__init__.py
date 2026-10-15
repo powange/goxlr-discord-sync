@@ -1,6 +1,6 @@
 """GoXLR Discord Sync: mirror GoXLR mute controls to Discord voice settings."""
 
-__version__ = "2.2.0"
+__version__ = "2.2.1"
 
 APP_NAME = "GoXLR Discord Sync"
 REPO = "powange/goxlr-discord-sync"

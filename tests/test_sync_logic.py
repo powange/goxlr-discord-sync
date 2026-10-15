@@ -62,3 +62,4 @@ def test_goxlr_state_for():
     assert goxlr_state_for(True, "ToVoiceChat", MUTE) == "MutedToX"
     assert goxlr_state_for(True, "ToStream", MUTE) == "MutedToAll"
     assert goxlr_state_for(True, None, MUTE) == "MutedToX"
+    assert goxlr_state_for(True, "ToStream", ["ToVoiceChat"]) is None

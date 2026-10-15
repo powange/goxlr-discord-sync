@@ -140,6 +140,7 @@ class TokenManager:
 
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     expected_state = ""
+    timeout = 5  # an idle browser connection must not block the wait loop
     result: dict = {}
 
     def do_GET(self):  # noqa: N802 (http.server API)
@@ -150,7 +151,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             return
         params = urllib.parse.parse_qs(parsed.query)
         state = params.get("state", [""])[0]
-        if not secrets.compare_digest(state, type(self).expected_state):
+        if not secrets.compare_digest(state.encode(), type(self).expected_state.encode()):
             self._reply(400, "Invalid request", "This authorization link is not the one GoXLR Discord Sync opened.")
             return
         if "error" in params:

@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 IS_WINDOWS = sys.platform == "win32"
@@ -94,13 +95,26 @@ def atomic_write_bytes(path: Path, data: bytes, private: bool = False) -> None:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        _replace_with_retry(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
         except OSError:
             pass
         raise
+
+
+def _replace_with_retry(src: str, dst: Path, attempts: int = 20) -> None:
+    """os.replace, retried: on Windows it fails while another process (antivirus,
+    indexer, the settings window) has the destination open."""
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05)
 
 
 def read_json(path: Path) -> dict | None:

@@ -116,6 +116,9 @@ class DiscordIPC:
                 op, length = _HEADER.unpack(header)
                 body = await self._reader.readexactly(length)
                 payload = json.loads(body.decode("utf-8")) if body else {}
+                if not isinstance(payload, dict):
+                    log.warning("Ignoring unexpected Discord frame")
+                    continue
                 if op == OP_FRAME:
                     self._dispatch(payload)
                 elif op == OP_PING:

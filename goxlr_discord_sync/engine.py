@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import websockets
+from websockets.exceptions import WebSocketException
 
 from . import auth, secure_store
 from .config import Config
@@ -31,7 +31,6 @@ log = logging.getLogger(__name__)
 
 RETRY_MIN = 2
 RETRY_MAX = 30
-ECHO_WINDOW = 1.0       # seconds during which Discord events caused by our own changes are ignored
 LOSS_NOTIFY_DELAY = 10  # seconds a connection must stay down before notifying
 
 
@@ -82,7 +81,13 @@ class Engine:
         self._may_prompt = True
         self._force_refresh = False
         self._auth_failures = 0
-        self._echo_until = 0.0
+        self._set_in_flight = False      # a SET_VOICE_SETTINGS is waiting for its response
+        self._events_during_set = False
+        self._set_failures = 0
+        self._retry_handle: asyncio.TimerHandle | None = None
+        self._reconcile_fields: set[str] = set()
+        # GoXLR state written by two-way sync: key -> (state we set, state to restore on unmute)
+        self._pushed: dict[str, tuple[str, str]] = {}
         self._cancel_browser = threading.Event()
         self._tasks: set[asyncio.Task] = set()
         self._push_lock = asyncio.Lock()
@@ -106,6 +111,10 @@ class Engine:
             self._cancel_browser.set()
             for timer in self._loss_timers.values():
                 timer.cancel()
+            if self._retry_handle:
+                self._retry_handle.cancel()
+            for task in list(self._tasks):
+                task.cancel()
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -118,6 +127,8 @@ class Engine:
         old, self.cfg = self.cfg, cfg
         if credentials_changed or old.client_id != cfg.client_id or old.oauth_port != cfg.oauth_port:
             log.info("Discord application settings changed, reconnecting")
+            if old.client_id != cfg.client_id:
+                self.tokens.clear()  # tokens belong to the previous application
             self._may_prompt = True
             self._restart_discord()
         if old.goxlr_url != cfg.goxlr_url:
@@ -125,7 +136,10 @@ class Engine:
             self._goxlr_restart.set()
         if self._goxlr_status is not None:
             self._snapshot = self._goxlr_status.snapshot(cfg.mixer_serial, cfg.deafen_channel)
-        self._recompute(force_reconcile=True)
+        # Re-enabling a sync pushes the current GoXLR state (other settings only
+        # trigger a push when they change what the GoXLR wants).
+        enabled = (cfg.cough_sync and not old.cough_sync) or (cfg.chat_sync and not old.chat_sync)
+        self._recompute(force_reconcile=enabled)
         self._changed()
 
     def reauthorize(self) -> None:
@@ -135,10 +149,12 @@ class Engine:
         self._auth_failures = 0
         self._restart_discord()
 
-    def request_reconcile(self) -> None:
+    def request_reconcile(self, fields: tuple[str, ...] = ("mute", "deaf")) -> None:
+        self._reconcile_fields.update(fields)
         self._reconcile_needed.set()
 
     def _restart_discord(self) -> None:
+        self._cancel_browser.set()  # stop a browser authorization for the old settings
         ipc = self._ipc
         if ipc is not None:
             self._spawn(ipc.close())
@@ -198,7 +214,7 @@ class Engine:
                     reason = "connection closed by GoXLR Utility"
                 else:
                     reason = "restart requested"
-            except (OSError, TimeoutError, websockets.exceptions.WebSocketException) as e:
+            except (OSError, TimeoutError, WebSocketException) as e:
                 reason = f"{e.__class__.__name__}: {e}"
             except Exception as e:
                 log.exception("Unexpected GoXLR error")
@@ -358,6 +374,11 @@ class Engine:
         try:
             code = await ipc.authorize(auth.SCOPES)
             return await self.tokens.exchange(cfg.client_id, secret, code, [cfg.redirect_uri, None])
+        except (DiscordClosed, auth.TransientAuthError):
+            # Not the user's answer: prompt again on the next attempt.
+            self._may_prompt = True
+            self._set(auth="unknown")
+            raise
         except TimeoutError:
             self._set(auth="required")
             raise NeedsUser("The authorization request in Discord was not answered") from None
@@ -378,6 +399,10 @@ class Engine:
                 auth.browser_authorize, cfg.client_id, cfg.redirect_uri, cfg.oauth_port, 180, self._cancel_browser
             )
             return await self.tokens.exchange(cfg.client_id, secret, code, [cfg.redirect_uri])
+        except auth.TransientAuthError:
+            self._may_prompt = True
+            self._set(auth="unknown")
+            raise
         except auth.AuthError as e:
             self._set(auth="required")
             raise NeedsUser(f"Discord authorization failed: {e}") from e
@@ -396,9 +421,28 @@ class Engine:
     def _on_discord_event(self, evt: str, data: dict) -> None:
         if evt != "VOICE_SETTINGS_UPDATE":
             return
+        st = self.status
+        prev_mute, prev_deaf = st.discord_mute, st.discord_deaf
         self._update_discord_voice(data)
-        if self.cfg.bidirectional and time.monotonic() >= self._echo_until:
-            self._spawn(self._push_discord_to_goxlr())
+        if self._set_in_flight:
+            # Echo of our own change (Discord may send it before the response), or a click
+            # at the same instant: settled by the reconcile loop once the response is in.
+            self._events_during_set = True
+            return
+        # Only fields that actually changed come from the user; everything else is a repeat.
+        deaf_changed = prev_deaf is not None and st.discord_deaf != prev_deaf
+        mute_changed = prev_mute is not None and st.discord_mute != prev_mute
+        if deaf_changed and not st.discord_deaf:
+            # Undeafen: Discord restores its own pre-deafen mute, which says nothing about
+            # what the GoXLR wants. Re-apply the GoXLR mute (never leave a live mic behind).
+            self.request_reconcile(("mute",))
+        if not self.cfg.bidirectional:
+            return
+        # A mute change implied by deafening/undeafening is not a user choice.
+        push_deaf = deaf_changed
+        push_mute = mute_changed and not deaf_changed and not st.discord_deaf
+        if push_deaf or push_mute:
+            self._spawn(self._push_discord_to_goxlr(push_mute=push_mute, push_deaf=push_deaf))
 
     # --- reconciliation ----------------------------------------------------------
 
@@ -406,29 +450,46 @@ class Engine:
         while True:
             await self._reconcile_needed.wait()
             self._reconcile_needed.clear()
+            fields, self._reconcile_fields = self._reconcile_fields, set()
             try:
-                await self._reconcile()
+                await self._reconcile(fields)
             except Exception:
                 log.exception("Synchronisation failed")
 
-    async def _reconcile(self) -> None:
-        for _ in range(3):  # undeafen, then mute, at most
+    def _schedule_retry(self, fields: set[str]) -> None:
+        delay = min(RETRY_MIN * 2 ** self._set_failures, RETRY_MAX)
+        self._set_failures += 1
+        if self._retry_handle:
+            self._retry_handle.cancel()
+        self._retry_handle = asyncio.get_running_loop().call_later(delay, self.request_reconcile, tuple(fields))
+        log.info("Retrying the Discord update in %ss", delay)
+
+    async def _reconcile(self, fields: set[str]) -> None:
+        for _ in range(4):  # undeafen, then mute, plus a re-check after events during a set
             ipc = self._ipc
             if ipc is None or not self.status.discord_connected:
                 return
-            want_mute = self.status.goxlr_mute if self.cfg.cough_sync else None
-            want_deaf = self.status.goxlr_deaf if self.cfg.chat_sync else None
+            want_mute = self.status.goxlr_mute if self.cfg.cough_sync and "mute" in fields else None
+            want_deaf = self.status.goxlr_deaf if self.cfg.chat_sync and "deaf" in fields else None
             args = plan_discord_update(want_mute, want_deaf, self.status.discord_mute, self.status.discord_deaf)
             if not args:
+                self._set_failures = 0
                 return
             started = time.monotonic()
+            self._set_in_flight = True
+            self._events_during_set = False
             try:
                 result = await ipc.set_voice_settings(**args)
-            except (RPCError, DiscordClosed, TimeoutError) as e:
+            except DiscordClosed as e:
+                log.warning("Discord closed before applying %s: %s", args, e)
+                return  # the new session pushes the state again
+            except (RPCError, TimeoutError) as e:
                 log.warning("Discord did not apply %s: %s", args, e)
                 self._set(detail=f"Sync failed: {e}")
+                self._schedule_retry(fields)
                 return
-            self._echo_until = time.monotonic() + ECHO_WINDOW
+            finally:
+                self._set_in_flight = False
             latency = (time.monotonic() - started) * 1000
             if isinstance(result, dict) and ("mute" in result or "deaf" in result):
                 self._update_discord_voice(result)
@@ -436,26 +497,46 @@ class Engine:
                 self._update_discord_voice(args)
             log.info("Discord %s (%.0f ms)", ", ".join(f"{k}={v}" for k, v in args.items()), latency)
             self._set(last_latency_ms=latency, detail="Synchronised")
+            if self._events_during_set:
+                # Something else may have changed meanwhile: the GoXLR state decides.
+                fields = {"mute", "deaf"}
 
-    async def _push_discord_to_goxlr(self) -> None:
-        """Two-way sync: mirror a change made in Discord onto the GoXLR."""
+    async def _push_discord_to_goxlr(self, push_mute: bool, push_deaf: bool) -> None:
+        """Two-way sync: mirror a change the user made in Discord onto the GoXLR."""
         async with self._push_lock:
             client, snap, st, cfg = self._goxlr, self._snapshot, self.status, self.cfg
             if client is None or snap is None or not client.connected:
                 return
             try:
-                if (cfg.chat_sync and snap.deafen_fader and st.discord_deaf is not None
+                if (push_deaf and cfg.chat_sync and snap.deafen_fader and st.discord_deaf is not None
                         and st.goxlr_deaf is not None and st.discord_deaf != st.goxlr_deaf):
-                    state = goxlr_state_for(st.discord_deaf, snap.deafen_mute_type, cfg.deafen_triggers)
-                    log.info("Discord deafen changed: setting fader %s to %s", snap.deafen_fader, state)
-                    await client.send_command(snap.serial, {"SetFaderMuteState": [snap.deafen_fader, state]})
-                if (cfg.cough_sync and not st.discord_deaf and st.discord_mute is not None
+                    fader = snap.deafen_fader
+                    await self._push_state(
+                        client, snap.serial, "fader", st.discord_deaf, snap.deafen_state, snap.deafen_mute_type,
+                        cfg.deafen_triggers, lambda state: {"SetFaderMuteState": [fader, state]},
+                    )
+                if (push_mute and cfg.cough_sync and not st.discord_deaf and st.discord_mute is not None
                         and st.goxlr_mute is not None and st.discord_mute != st.goxlr_mute):
-                    state = goxlr_state_for(st.discord_mute, snap.cough_mute_type, cfg.mute_triggers)
-                    log.info("Discord mute changed: setting Cough button to %s", state)
-                    await client.send_command(snap.serial, {"SetCoughMuteState": state})
-            except (ConnectionError, RuntimeError, TimeoutError, websockets.exceptions.WebSocketException) as e:
+                    await self._push_state(
+                        client, snap.serial, "cough", st.discord_mute, snap.cough_state, snap.cough_mute_type,
+                        cfg.mute_triggers, lambda state: {"SetCoughMuteState": state},
+                    )
+            except (ConnectionError, RuntimeError, TimeoutError, WebSocketException) as e:
                 log.warning("Could not update the GoXLR: %s", e)
+
+    async def _push_state(self, client, serial, key, muted, current, mute_type, triggers, command) -> None:
+        if muted:
+            target = goxlr_state_for(True, mute_type, triggers)
+            if target is None:
+                log.info("No GoXLR mute state matches the Discord change with the current settings")
+                return
+            # Remember a mute that was not synced (e.g. Muted to Stream) to restore it later.
+            self._pushed[key] = (target, current if current and current != "Unmuted" else "Unmuted")
+        else:
+            pushed = self._pushed.pop(key, None)
+            target = pushed[1] if pushed and pushed[0] == current else "Unmuted"
+        log.info("Discord %s changed: setting %s to %s", "deafen" if key == "fader" else "mute", key, target)
+        await client.send_command(serial, command(target))
 
     # --- presentation --------------------------------------------------------------
 

@@ -102,3 +102,20 @@ def test_notes_excerpt_is_plain_text():
     text = updates.notes_excerpt(API_RELEASE["body"])
     assert text == "What's new\n Faster sync, see PR"
     assert updates.notes_excerpt("line\n" * 400, limit=50).endswith("…")
+
+
+def test_interrupted_download_leaves_no_partial_file(monkeypatch, tmp_path):
+    import requests
+
+    class Broken(FakeResponse):
+        def iter_content(self, chunk_size):
+            yield PAYLOAD[:10]
+            raise requests.ConnectionError("reset")
+
+    def get(url, **kwargs):
+        return Broken(PAYLOAD) if url == "https://dl/setup" else FakeResponse(GOOD_SUMS.encode())
+
+    monkeypatch.setattr(updates.requests, "get", get)
+    with pytest.raises(updates.UpdateError, match="Download failed"):
+        updates.download_setup(updates.parse_release(API_RELEASE), tmp_path)
+    assert list(tmp_path.iterdir()) == []

@@ -33,13 +33,16 @@ def apply_json_patch(doc: dict, ops: list[dict]) -> None:
             raise PatchError(f"Unsupported path {path!r}")
         tokens = [_unescape(t) for t in path[1:].split("/")]
         parent = doc
-        for token in tokens[:-1]:
-            if isinstance(parent, list):
-                parent = parent[int(token)]
-            elif isinstance(parent, dict) and token in parent:
-                parent = parent[token]
-            else:
-                raise PatchError(f"Path not found: {path}")
+        try:
+            for token in tokens[:-1]:
+                if isinstance(parent, list):
+                    parent = parent[int(token)]
+                elif isinstance(parent, dict) and token in parent:
+                    parent = parent[token]
+                else:
+                    raise PatchError(f"Path not found: {path}")
+        except (ValueError, IndexError) as e:
+            raise PatchError(f"Path not found: {path}") from e
         last = tokens[-1]
         try:
             if kind in ("add", "replace"):
@@ -76,6 +79,10 @@ class MixerSnapshot:
     deafen_mute_type: str | None
 
 
+def _as_dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 class GoXLRStatus:
     """Full DaemonStatus document, kept up to date with patches."""
 
@@ -100,10 +107,10 @@ class GoXLRStatus:
         serial = self.pick_serial(preferred_serial)
         if serial is None:
             return None
-        mixer = self.mixers[serial] or {}
-        cough = mixer.get("cough_button") or {}
+        mixer = _as_dict(self.mixers[serial])
+        cough = _as_dict(mixer.get("cough_button"))
         fader_name = fader = None
-        for name, info in sorted((mixer.get("fader_status") or {}).items()):
+        for name, info in sorted(_as_dict(mixer.get("fader_status")).items()):
             if isinstance(info, dict) and info.get("channel") == deafen_channel:
                 fader_name, fader = name, info
                 break
@@ -189,7 +196,10 @@ class GoXLRClient:
         request_id = next(self._ids)
         fut = asyncio.get_running_loop().create_future()
         self._pending[request_id] = fut
-        await self._ws.send(json.dumps({"id": request_id, "data": {"Command": [serial, command]}}))
-        result = await asyncio.wait_for(fut, timeout)
+        try:
+            await self._ws.send(json.dumps({"id": request_id, "data": {"Command": [serial, command]}}))
+            result = await asyncio.wait_for(fut, timeout)
+        finally:
+            self._pending.pop(request_id, None)  # no leak when the answer never comes
         if isinstance(result, dict) and "Error" in result:
             raise RuntimeError(f"GoXLR Utility refused {command}: {result['Error']}")

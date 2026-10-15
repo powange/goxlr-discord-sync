@@ -38,7 +38,7 @@ class App:
         self.tray = None
         self.update_info: updates.Release | None = None
         self._updating = False
-        self._checking = False
+        self._check_lock = asyncio.Lock()
         self._main_task: asyncio.Task | None = None
 
     def run(self) -> None:
@@ -54,7 +54,10 @@ class App:
         self.tray.start()
         self._restore_update_info()
         self._refresh_tray()
-        self._announce_new_version()
+        try:
+            self._announce_new_version()
+        except OSError as e:
+            log.warning("Cannot record the running version: %s", e)
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(self.engine.run(), name="engine")
@@ -85,25 +88,31 @@ class App:
 
     async def _watch_files(self) -> None:
         """Pick up changes written by the settings window (or by hand)."""
-        cfg_mtime = paths.mtime(paths.config_file())
-        secrets_mtime = paths.mtime(paths.secrets_file())
-        secret = await asyncio.to_thread(secure_store.get_client_secret)
+        seen = (paths.mtime(paths.config_file()), paths.mtime(paths.secrets_file()),
+                await asyncio.to_thread(secure_store.get_client_secret))
         while True:
             await asyncio.sleep(2)
-            new_cfg_mtime = paths.mtime(paths.config_file())
-            new_secrets_mtime = paths.mtime(paths.secrets_file())
-            credentials_changed = False
-            if new_secrets_mtime != secrets_mtime:
-                secrets_mtime = new_secrets_mtime
-                new_secret = await asyncio.to_thread(secure_store.get_client_secret)
-                credentials_changed = new_secret != secret
-                secret = new_secret
-            if new_cfg_mtime != cfg_mtime or credentials_changed:
-                cfg_mtime = new_cfg_mtime
-                new_cfg = config.load()
-                if new_cfg != self.cfg or credentials_changed:
-                    log.info("Settings reloaded")
-                    self._apply(new_cfg, credentials_changed)
+            try:
+                seen = await self._reload_if_changed(*seen)
+            except Exception:
+                # This task shares the app TaskGroup: an escaping error would stop the app.
+                log.exception("Cannot reload the settings")
+
+    async def _reload_if_changed(self, cfg_mtime, secrets_mtime, secret):
+        new_cfg_mtime = paths.mtime(paths.config_file())
+        new_secrets_mtime = paths.mtime(paths.secrets_file())
+        credentials_changed = False
+        if new_secrets_mtime != secrets_mtime:
+            new_secret = await asyncio.to_thread(secure_store.get_client_secret)
+            credentials_changed = new_secret != secret
+            secrets_mtime, secret = new_secrets_mtime, new_secret
+        if new_cfg_mtime != cfg_mtime or credentials_changed:
+            cfg_mtime = new_cfg_mtime
+            new_cfg = config.load()
+            if new_cfg != self.cfg or credentials_changed:
+                log.info("Settings reloaded")
+                self._apply(new_cfg, credentials_changed)
+        return cfg_mtime, secrets_mtime, secret
 
     # --- updates -----------------------------------------------------------------
 
@@ -130,15 +139,24 @@ class App:
                 await self.check_updates()
             await asyncio.sleep(3600)
 
+    async def _fetch_release(self) -> updates.Release | None:
+        return await asyncio.to_thread(updates.fetch_latest_release)
+
     async def check_updates(self, manual: bool = False) -> None:
-        """Daily check, or "Check for updates" from the menu (manual=True)."""
-        if self._checking:
-            return
-        self._checking = True
-        try:
-            latest = await asyncio.to_thread(updates.fetch_latest_release)
-        finally:
-            self._checking = False
+        """Daily check, or "Check for updates" from the menu (manual=True).
+
+        Never raises: it runs in the app TaskGroup, where an error would stop the app.
+        """
+        async with self._check_lock:  # a click during the daily check waits for it
+            try:
+                await self._check_updates(manual)
+            except Exception as e:
+                log.exception("Update check failed")
+                if manual:
+                    self._notify("Update check failed", str(e))
+
+    async def _check_updates(self, manual: bool) -> None:
+        latest = await self._fetch_release()
         state = config.load_state()
         state["last_update_check"] = time.time()
         if latest is None:

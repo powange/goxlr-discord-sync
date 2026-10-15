@@ -47,10 +47,17 @@ def plan_discord_update(
     return {}
 
 
-def goxlr_state_for(muted: bool, mute_type: str | None, triggers: Iterable[str]) -> str:
-    """GoXLR mute state that reproduces a Discord mute/deafen flag (two-way sync)."""
+def goxlr_state_for(muted: bool, mute_type: str | None, triggers: Iterable[str]) -> str | None:
+    """GoXLR mute state that reproduces a Discord mute/deafen flag (two-way sync).
+
+    None when no GoXLR state maps to "muted" with these triggers: pushing anything
+    would be undone by the next GoXLR -> Discord reconciliation.
+    """
     if not muted:
         return "Unmuted"
-    if (mute_type or "All") in set(triggers):
+    triggers = set(triggers)
+    if (mute_type or "All") in triggers:
         return "MutedToX"
-    return "MutedToAll"
+    if "All" in triggers:
+        return "MutedToAll"
+    return None

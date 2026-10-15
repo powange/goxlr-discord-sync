@@ -207,6 +207,10 @@ class SettingsWindow:
 
 
 def run_settings() -> None:
+    instance = system.SingleInstance("Settings")
+    if not instance.acquire():
+        log.info("The settings window is already open")
+        return
     root = tk.Tk()
     SettingsWindow(root)
     root.mainloop()

@@ -43,14 +43,31 @@ def stop_running_app() -> None:
 
 
 def copy_with_retry(source: Path, target: Path, attempts: int = 10) -> None:
-    for attempt in range(attempts):
-        try:
-            shutil.copy2(source, target)
-            return
-        except PermissionError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(0.5)  # the stopped process may still hold the file
+    """Copy next to the target, then swap: an interrupted copy never leaves a broken exe."""
+    staged = target.with_name(target.name + ".new")
+    shutil.copy2(source, staged)
+    try:
+        for attempt in range(attempts):
+            try:
+                staged.replace(target)
+                return
+            except PermissionError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.5)  # the exiting process may still hold the file
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def installed_dir() -> Path | None:
+    """Folder of the current installation, from its autostart entry."""
+    try:
+        exe = autostart.installed_exe_path()
+    except OSError:
+        return None
+    if exe and exe.name.lower() == paths.APP_EXE_NAME.lower() and exe.exists():
+        return exe.parent
+    return None
 
 
 def app_installed() -> bool:
@@ -67,7 +84,7 @@ class SetupWizard:
         root.geometry("720x620")
         root.minsize(640, 560)
 
-        self.install_dir = paths.default_install_dir() if FROZEN else paths.app_dir()
+        self.install_dir = (installed_dir() or paths.default_install_dir()) if FROZEN else paths.app_dir()
         self.cfg = config.load()
         self.current = 0
         self.validator = None  # callable(proceed) set by steps that need checks before Next
@@ -353,7 +370,7 @@ class SetupWizard:
             stop_running_app()
             autostart.disable()
             report.append("✓ Autostart removed")
-            if FROZEN and exe.name.lower() == paths.APP_EXE_NAME.lower():
+            if FROZEN and exe.name.lower() == paths.APP_EXE_NAME.lower() and exe.exists():
                 for _ in range(10):
                     try:
                         exe.unlink(missing_ok=True)
@@ -365,7 +382,10 @@ class SetupWizard:
                     exe.parent.rmdir()  # only when empty
                 except OSError:
                     pass
-                report.append(f"✓ Application removed from {exe.parent}")
+                report.append(f"✓ Application removed from {exe.parent}" if not exe.exists()
+                              else f"⚠ Could not delete {exe}")
+            elif FROZEN:
+                report.append(f"Application not found in {exe.parent}")
             if remove_settings:
                 secure_store.clear_all()
                 shutil.rmtree(paths.data_dir(), ignore_errors=True)

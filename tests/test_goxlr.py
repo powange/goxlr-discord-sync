@@ -105,3 +105,41 @@ async def test_client_status_patches_and_commands():
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+def test_malformed_patch_paths_are_patch_errors():
+    with pytest.raises(PatchError):
+        apply_json_patch({"a": [1]}, [{"op": "replace", "path": "/a/x/b", "value": 1}])
+    with pytest.raises(PatchError):
+        apply_json_patch({"a": [1]}, [{"op": "replace", "path": "/a/5/b", "value": 1}])
+
+
+def test_snapshot_tolerates_unexpected_types():
+    st = GoXLRStatus({"mixers": {"S1": {"cough_button": None, "fader_status": "?"}}})
+    snap = st.snapshot("", "Chat")
+    assert snap.cough_state is None and snap.deafen_fader is None
+
+
+async def test_command_timeout_does_not_leak():
+    utility = FakeUtility()
+
+    async def silent(ws):
+        async for raw in ws:
+            if json.loads(raw)["data"] == "GetStatus":
+                await ws.send(json.dumps({"id": 1, "data": {"Status": utility.status}}))
+
+    ready = asyncio.Event()
+
+    async def on_status(st):
+        ready.set()
+
+    async with websockets.serve(silent, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = GoXLRClient(f"ws://127.0.0.1:{port}/", on_status)
+        task = asyncio.create_task(client.run())
+        await asyncio.wait_for(ready.wait(), 5)
+        for _ in range(3):
+            with pytest.raises(TimeoutError):
+                await client.send_command("S1", {"SetCoughMuteState": "Unmuted"}, timeout=0.05)
+        assert client._pending == {}
+        task.cancel()
