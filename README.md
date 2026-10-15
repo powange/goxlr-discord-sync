@@ -58,6 +58,7 @@ Right-click the tray icon:
 | Authorize Discord again | Start a new authorization (e.g. after revoking it in Discord) |
 | Open log | Open the log file |
 | Install update vX… | Shown when a new version exists: confirm to download and install it |
+| Check for updates | Check now; offers the installation when a new version exists |
 
 ### Which GoXLR mute states count?
 

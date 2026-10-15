@@ -40,6 +40,7 @@ class Tray:
                  visible=lambda _: app.can_self_update),
             item(lambda _: f"Update available: v{app.update_info.version}", lambda: app.open_update(),
                  visible=lambda _: app.update_info is not None and not app.can_self_update),
+            item("Check for updates", lambda: app.check_updates_now()),
             item(f"About (v{__version__})", lambda: app.open_about()),
             pystray.Menu.SEPARATOR,
             item("Quit", lambda: app.quit()),

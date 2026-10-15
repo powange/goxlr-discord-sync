@@ -38,6 +38,7 @@ class App:
         self.tray = None
         self.update_info: updates.Release | None = None
         self._updating = False
+        self._checking = False
         self._main_task: asyncio.Task | None = None
 
     def run(self) -> None:
@@ -124,22 +125,50 @@ class App:
     async def _update_loop(self) -> None:
         await asyncio.sleep(20)
         while True:
-            state = config.load_state()
-            if self.cfg.check_updates and time.time() - state.get("last_update_check", 0) >= UPDATE_INTERVAL:
-                latest = await asyncio.to_thread(updates.fetch_latest_release)
-                state["last_update_check"] = time.time()
-                if latest:
-                    state["latest_release"] = latest.to_dict()
-                    if updates.is_newer(latest.version, __version__):
-                        self.update_info = latest
-                        self._refresh_tray()
-                        if state.get("notified_version") != latest.version:
-                            state["notified_version"] = latest.version
-                            action = "Install update" if self.can_self_update else "Update available"
-                            self._notify("Update available", f"Version {latest.version} is available. "
-                                         f"Choose “{action}” in the tray menu.")
-                config.save_state(state)
+            last = config.load_state().get("last_update_check", 0)
+            if self.cfg.check_updates and time.time() - last >= UPDATE_INTERVAL:
+                await self.check_updates()
             await asyncio.sleep(3600)
+
+    async def check_updates(self, manual: bool = False) -> None:
+        """Daily check, or "Check for updates" from the menu (manual=True)."""
+        if self._checking:
+            return
+        self._checking = True
+        try:
+            latest = await asyncio.to_thread(updates.fetch_latest_release)
+        finally:
+            self._checking = False
+        state = config.load_state()
+        state["last_update_check"] = time.time()
+        if latest is None:
+            config.save_state(state)
+            if manual:
+                self._notify("Update check failed", "GitHub could not be reached. Try again later.")
+            return
+        state["latest_release"] = latest.to_dict()
+        if not updates.is_newer(latest.version, __version__):
+            self.update_info = None
+            config.save_state(state)
+            self._refresh_tray()
+            if manual:
+                self._notify("No update available", f"You're running the latest version ({__version__}).")
+            return
+        self.update_info = latest
+        self._refresh_tray()
+        first_notice = state.get("notified_version") != latest.version
+        state["notified_version"] = latest.version
+        config.save_state(state)
+        if manual and self.can_self_update:
+            self.install_update()  # the confirmation dialog is the answer
+        elif manual or first_notice:
+            action = "Install update" if self.can_self_update else "Update available"
+            self._notify("Update available", f"Version {latest.version} is available. "
+                         f"Choose “{action}” in the tray menu.")
+
+    def check_updates_now(self) -> None:
+        if self.loop is not None:
+            asyncio.run_coroutine_threadsafe(self.check_updates(manual=True), self.loop)
 
     @property
     def can_self_update(self) -> bool:
