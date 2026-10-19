@@ -27,7 +27,8 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": ["English", "French"],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "windows/hooks.nsh"
       }
     },
     "linux": {

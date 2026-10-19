@@ -9,7 +9,7 @@ mod updates;
 use gds_core::config::{config_file, log_dir, Config};
 use gds_core::i18n;
 use tauri::{Manager, RunEvent};
-use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 fn autostart_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     let builder = tauri_plugin_autostart::Builder::new().app_name("GoXLR Discord Sync");
@@ -39,6 +39,7 @@ fn main() {
                 .level(log::LevelFilter::Info)
                 .max_file_size(1_000_000)
                 .rotation_strategy(RotationStrategy::KeepSome(3))
+                .timezone_strategy(TimezoneStrategy::UseLocal)
                 .build(),
         )
         // Same Run value name as the Python version: the migration simply updates its path.

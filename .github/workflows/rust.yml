@@ -1,0 +1,97 @@
+name: v3 (Rust)
+
+on:
+  push:
+    branches: [rust/v3]
+  pull_request:
+    paths: ['crates/**', 'src-tauri/**', 'ui/**', 'Cargo.*', '.github/workflows/rust.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  TAURI_CLI_VERSION: 2.12.3
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Linux build dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Format
+      if: runner.os == 'Linux'
+      run: cargo fmt --all --check
+
+    - name: Clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: Tests
+      run: cargo test --workspace
+
+  bundle:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Updater signature (see README). Without the key the bundles are built
+      # without updater artifacts.
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Linux build dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+
+    - name: Bundle
+      shell: bash
+      run: |
+        args=()
+        if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+          echo '{"bundle": {"createUpdaterArtifacts": false}}' > "$RUNNER_TEMP/no-updater.json"
+          args+=(--config "$RUNNER_TEMP/no-updater.json")
+        fi
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build "${args[@]}"
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: bundle-${{ runner.os }}
+        path: |
+          target/release/bundle/nsis/*.exe
+          target/release/bundle/nsis/*.sig
+          target/release/bundle/deb/*.deb
+          target/release/bundle/appimage/*.AppImage
+          target/release/bundle/appimage/*.sig
+        if-no-files-found: error
