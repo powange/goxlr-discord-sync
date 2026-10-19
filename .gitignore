@@ -35,4 +35,4 @@ dist/
 Thumbs.db
 
 # Rust prototype
-rust-prototype/target/
+/target/
