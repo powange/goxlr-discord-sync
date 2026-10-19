@@ -386,6 +386,7 @@ mod tests {
     /// The tests change XDG_RUNTIME_DIR: run them one at a time.
     static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    #[allow(clippy::await_holding_lock)] // the guard serialises the tests on purpose
     async fn with_fake<F: std::future::Future<Output = ()>>(close_after: Option<usize>, test: impl FnOnce() -> F) {
         let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
