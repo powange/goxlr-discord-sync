@@ -117,11 +117,13 @@ mod windows {
         {
             folders.push(PathBuf::from(location));
         }
-        let files: Vec<PathBuf> = folders
+        let mut files: Vec<PathBuf> = folders
             .iter()
             .flat_map(|d| [d.join(PYTHON_EXE), d.join(format!("{PYTHON_EXE}.previous"))])
             .filter(|f| f.exists())
             .collect();
+        files.sort_by_key(|f| f.to_string_lossy().to_lowercase());
+        files.dedup_by_key(|f| f.to_string_lossy().to_lowercase());
         if CURRENT_USER.open(PYTHON_UNINSTALL_KEY).is_ok() {
             match CURRENT_USER.remove_tree(PYTHON_UNINSTALL_KEY) {
                 Ok(()) => log::info!("Removed the Apps entry of the Python version"),
@@ -131,12 +133,27 @@ mod windows {
         if files.is_empty() {
             return;
         }
-        // The Python version may still be exiting: retry for a while off the main thread.
+        // Both versions running would apply every change twice: the installed
+        // version is now this one, so stop the old one (it may also still be exiting).
         std::thread::spawn(move || {
+            stop_python_version();
             for file in files {
                 remove_with_retry(&file);
             }
         });
+    }
+
+    fn stop_python_version() {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let stopped = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", PYTHON_EXE])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if stopped {
+            log::info!("Stopped the Python version that was still running");
+        }
     }
 
     fn remove_with_retry(file: &Path) {

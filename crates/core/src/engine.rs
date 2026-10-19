@@ -505,25 +505,25 @@ impl Engine {
             }
             if prev.cough_state != snap.cough_state {
                 log::info!(
-                    "Cough button: {:?} -> {:?} (mute function {:?})",
-                    prev.cough_state,
-                    snap.cough_state,
-                    snap.cough_mute_type
+                    "Cough button: {} -> {} (mute function {})",
+                    shown(&prev.cough_state),
+                    shown(&snap.cough_state),
+                    shown(&snap.cough_mute_type)
                 );
             }
             if prev.deafen_fader != snap.deafen_fader {
                 log::info!(
-                    "{} channel moved to fader {:?}",
+                    "{} channel moved to fader {}",
                     cfg.deafen_channel,
-                    snap.deafen_fader
+                    shown(&snap.deafen_fader)
                 );
             } else if prev.deafen_state != snap.deafen_state {
                 log::info!(
-                    "{} fader: {:?} -> {:?} (mute function {:?})",
+                    "{} fader: {} -> {} (mute function {})",
                     cfg.deafen_channel,
-                    prev.deafen_state,
-                    snap.deafen_state,
-                    snap.deafen_mute_type
+                    shown(&prev.deafen_state),
+                    shown(&snap.deafen_state),
+                    shown(&snap.deafen_mute_type)
                 );
             }
         }
@@ -1345,4 +1345,9 @@ impl VoiceChange {
     pub fn as_json(self) -> Value {
         json!({self.field(): self.value()})
     }
+}
+
+/// GoXLR value for the log, as the Python version wrote it.
+fn shown(value: &Option<String>) -> &str {
+    value.as_deref().unwrap_or("None")
 }
