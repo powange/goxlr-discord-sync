@@ -14,35 +14,42 @@ Mirror your GoXLR mute controls to Discord through Discord's local RPC API.
 - 🎨 Tray icon that shows the real Discord state: 🟢 mic live · 🔴 muted / deafened · 🟠 waiting for GoXLR Utility or Discord · ⚪ action needed
 - ⚙️ Settings window: device, deafen channel, which mute functions count, button actions, two-way sync, notifications
 - 🔊 Current voice channel in the tooltip; update notices wait until you leave the call
-- 🔐 Client secret and tokens encrypted with Windows DPAPI
+- 🔐 Client secret and tokens encrypted with Windows DPAPI (owner-only file on Linux)
 - 🔔 Optional notifications when a connection is lost or restored, and when an update is available
 - 🚀 Starts with Windows (or on login under Linux)
-- 🌍 English and French interface, following the Windows display language (or set in Settings › Behaviour)
+- 🌍 English and French interface, following the system language (or set in Settings › Behaviour)
+- 🪶 Native application (Rust + Tauri): 3 MB installer
 
 ## 📥 Installation
+
+**Windows 10/11**
 
 1. Download `GoXLR_Setup.exe` from [Releases](https://github.com/powange/goxlr-discord-sync/releases)
    (optional: check it against `SHA256SUMS.txt` with `certutil -hashfile GoXLR_Setup.exe SHA256`)
 2. Run it and follow the wizard
-3. On first launch, click **Authorize** in the window that Discord shows
+3. Enter your Discord application in the settings window that opens (see below), then click **Authorize** in the window that Discord shows
 
-Updating: when a new version is published, a notification tells you. Choose **Install update** in the tray menu and confirm: the app downloads the new installer, checks it against `SHA256SUMS.txt`, closes, updates itself and starts again. Nothing is installed without your confirmation. You can also run a newer `GoXLR_Setup.exe` by hand; your settings are kept either way.
+**Linux (x86_64)**: install `goxlr-discord-sync_amd64.deb` (Debian, Ubuntu…) or run `GoXLR_Discord_Sync_amd64.AppImage`. The tray icon needs a desktop with a system tray (AppIndicator extension on GNOME).
+
+**Updating**: when a new version is published, a notification tells you. Choose **Install update** in the tray menu and confirm: the app downloads the new version, checks its signature, installs it and starts again. Nothing is installed without your confirmation, and your settings are kept.
+
+**Coming from version 2.x** (Python): update from the tray menu as usual, or run the new `GoXLR_Setup.exe`. Version 3 keeps your settings, Discord authorization and autostart, and removes the old version on its first start.
 
 ### Requirements
 
-- Windows 10/11 (Linux works from source, see below)
 - [GoXLR Utility](https://github.com/GoXLR-on-Linux/goxlr-utility) running
 - Discord desktop app running
+- Windows: WebView2 (built into Windows 10/11, installed by the setup if missing)
 
 ## 🔧 Discord application
 
-Discord only lets an application control your voice settings if you created it yourself. The wizard walks you through it:
+Discord only lets an application control your voice settings if you created it yourself. The settings window walks you through it:
 
 1. Go to https://discord.com/developers/applications and click **New Application**
 2. Copy the **Application ID** (Client ID)
 3. In **OAuth2**, copy the **Client Secret**
 4. In **OAuth2 › Redirects**, add `http://127.0.0.1:9543/callback` and save
-5. Paste both values in the wizard and click **Check**
+5. Paste both values in **Settings › Discord**, click **Check**, then **Save**
 
 Authorization happens inside Discord. If that fails, the app falls back to your browser (that is what the redirect URL is for).
 
@@ -84,9 +91,9 @@ If a GoXLR is chosen in **Settings › GoXLR** and it is not plugged in, sync pa
 |---|---|
 | `%APPDATA%\GoXLR Discord Sync\config.json` | Settings (editable, reloaded live) |
 | `%APPDATA%\GoXLR Discord Sync\secrets.dat` | Client secret and tokens (DPAPI encrypted) |
-| `%APPDATA%\GoXLR Discord Sync\logs\app.log` | Log (rotated, 3 × 1 MB) |
+| `%APPDATA%\GoXLR Discord Sync\logs\` | Log (rotated, 3 × 1 MB) |
 
-On Linux the folder is `~/.config/goxlr-discord-sync/`. Settings from version 1.x (`client_id.txt`…) are imported automatically and the plain text files are deleted.
+On Linux the folder is `~/.config/goxlr-discord-sync/`. The application itself is installed in `%LOCALAPPDATA%\GoXLR Discord Sync`.
 
 ## 🔍 Troubleshooting
 
@@ -102,48 +109,44 @@ On Linux the folder is `~/.config/goxlr-discord-sync/`. Settings from version 1.
 
 ## 🗑️ Uninstall
 
-Open Windows **Settings › Apps › Installed apps**, find **GoXLR Discord Sync** and choose **Uninstall** (or run `GoXLR_Setup.exe` and click **Uninstall…**). It stops the app, removes the autostart and the executable, and asks whether to delete your settings.
+Open Windows **Settings › Apps › Installed apps**, find **GoXLR Discord Sync** and choose **Uninstall**. It removes the application and the autostart; tick *Delete the application data* to also delete your settings and Discord credentials.
 
-From source: `uninstall.bat`.
+Linux: remove the `goxlr-discord-sync` package (or the AppImage), and `~/.config/goxlr-discord-sync/` for the settings.
 
 ## 🛠️ Development
+
+Requirements: [Rust](https://rustup.rs) (stable) and Node.js (for the Tauri CLI). On Linux, also the WebKitGTK and AppIndicator development packages: `sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev`.
 
 ```bash
 git clone https://github.com/powange/goxlr-discord-sync.git
 cd goxlr-discord-sync
-pip install -r requirements-dev.txt
-python setup_gui.py            # or: python goxlr_discord_sync.pyw --settings
-pythonw goxlr_discord_sync.pyw # run the app (python on Linux)
-ruff check . && pytest         # lint and tests
-python build.py all            # Windows: dist\GoXLR_Discord_Sync.exe, dist\GoXLR_Setup.exe, SHA256SUMS.txt
+cargo run -p goxlr-discord-sync                 # run the app (debug build)
+cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace                          # tests (fake GoXLR Utility, fake Discord)
+npx @tauri-apps/cli@2 build                     # installers in target/release/bundle/
 ```
 
-**Linux**: GoXLR Utility comes from GoXLR-on-Linux, and the app connects to Discord's Unix socket (native, Flatpak or Snap). Run `python setup_gui.py`, or `pip install -r requirements.txt` then `python goxlr_discord_sync.pyw --autostart on`. The tray icon needs a desktop with a system tray (AppIndicator on GNOME).
+Set `GOXLR_DISCORD_SYNC_HOME` to a folder to run with separate settings, without touching your real ones.
 
-**Release**: bump `__version__` in `goxlr_discord_sync/__init__.py`, then push a matching tag (`v2.0.0`). CI runs the tests, builds on Windows and publishes the release.
+**Release**: bump `version` in the root `Cargo.toml`, then push a matching tag (`v3.0.0`). CI checks the version, runs the tests, builds the Windows setup and the Linux packages, signs them for the updater and publishes the release with `SHA256SUMS.txt` and `latest.json`.
 
 ```
-goxlr_discord_sync/
-├── app.py              # entry point, tray actions, live config reload, update check
-├── engine.py           # GoXLR ↔ Discord synchronisation (reconnection, authorization)
-├── sync_logic.py       # pure decision rules (mute functions, deafen/mute ordering)
-├── goxlr.py            # GoXLR Utility websocket client, JSON patch model
-├── discord_ipc.py      # Discord RPC client (named pipe / Unix socket)
-├── auth.py             # OAuth2 tokens, browser fallback
-├── config.py, secure_store.py, paths.py, migration.py
-├── tray.py, icons.py, settings_window.py, ui_common.py
-├── autostart.py, system.py, updates.py, logging_setup.py
-goxlr_discord_sync.pyw  # launcher
-setup_gui.py            # installation wizard
-build.py                # PyInstaller build (used by build*.bat and CI)
-tests/                  # pytest suite (fake GoXLR Utility and fake Discord)
+crates/core/            # gds-core: everything but the user interface
+├── src/engine.rs       # GoXLR ↔ Discord synchronisation (reconnection, authorization)
+├── src/sync.rs         # pure decision rules (mute functions, deafen/mute ordering)
+├── src/goxlr.rs        # GoXLR Utility websocket client, JSON patch model
+├── src/discord.rs      # Discord RPC client (named pipe / Unix socket)
+├── src/auth.rs         # OAuth2 tokens, browser fallback
+├── src/config.rs, secrets.rs, i18n.rs
+├── i18n/fr.json        # French translations
+└── tests/              # engine scenarios, translation coverage
+src-tauri/              # the application: tray, settings commands, updates, autostart
+ui/                     # settings window (HTML, CSS, JavaScript)
 ```
 
 ## 🔏 Code signing
 
-The executables are not signed yet, so Windows SmartScreen may warn on the first download. The release workflow is ready for two kinds of signing. Each one switches on as soon as its secrets exist; until then releases are built unsigned, as before.
-
-**SignPath (free for open source)**
+The executables are not signed yet, so Windows SmartScreen may warn on the first download. The release workflow (`.github/workflows/rust.yml`) signs them with SignPath as soon as it is configured; until then releases are built unsigned.
 
 1. Apply at https://signpath.org (SignPath Foundation, open-source program) with this repository.
 2. In SignPath, create the project, paste `signing/signpath-artifact-configuration.xml` as its artifact configuration, and add GitHub as trusted build system for this repository.
@@ -151,11 +154,9 @@ The executables are not signed yet, so Windows SmartScreen may warn on the first
    - secret `SIGNPATH_API_TOKEN`;
    - variables `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_POLICY_SLUG`.
 
-**Your own certificate (.pfx)**
+The application is signed before the setup bundles it, the setup is signed next, the workflow checks both signatures, and the updater signature and `SHA256SUMS.txt` are computed from the signed files.
 
-Add the secrets `SIGN_PFX_BASE64` (the file encoded with `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`) and `SIGN_PFX_PASSWORD`. `build.py` then signs each executable with `signtool` (Windows SDK) right after building it. Locally, set the same environment variables before `python build.py all`.
-
-Either way, the application is signed before the setup bundles it, the setup is signed next, the workflow checks both signatures, and `SHA256SUMS.txt` is computed from the signed files. To test the signing steps without a certificate, run the workflow by hand (**Actions › Build and Release › Run workflow**) with *Sign with a throwaway self-signed certificate* checked.
+**Updater signature**: updates are only installed when they are signed with the key whose public part is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The private key and its password are the secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep a backup of both: without them, installed versions can no longer update themselves.
 
 ## Code signing policy
 
@@ -179,9 +180,9 @@ It only connects to:
 | GoXLR Utility on this computer (`localhost`) | always | GoXLR commands (two-way sync, button actions) |
 | The Discord client on this computer (local RPC) | always | voice settings changes (mute, deafen, leave the channel) |
 | `discord.com` | when you authorize the application | your application's Client ID and secret, the authorization code and tokens |
-| `api.github.com` / `github.com` | once a day if update checks are enabled, and when you confirm an update | a standard request for the latest release, then the download |
+| `github.com` | once a day if update checks are enabled, and when you confirm an update | a standard request for the latest release, then the download |
 
-The Discord Client ID, Client Secret and access tokens are stored only on your computer, in `%APPDATA%\GoXLR Discord Sync` (secrets encrypted with Windows DPAPI). Nothing is sent to the author of this project. Update checks can be turned off in the setup wizard and in **Settings › Behaviour**. Discord's [privacy policy](https://discord.com/privacy) and GitHub's [privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) apply to the connections to their services.
+The Discord Client ID, Client Secret and access tokens are stored only on your computer, in `%APPDATA%\GoXLR Discord Sync` (secrets encrypted with Windows DPAPI; on Linux in `~/.config/goxlr-discord-sync`, readable only by you). Nothing is sent to the author of this project. Update checks can be turned off in **Settings › Behaviour**. Discord's [privacy policy](https://discord.com/privacy) and GitHub's [privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) apply to the connections to their services.
 
 ## 📄 License
 
