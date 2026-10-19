@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GoXLR Discord Sync",
-  "version": "3.0.0",
   "identifier": "com.powange.goxlr-discord-sync",
   "build": {
     "frontendDist": "../ui"

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     tags:
-      - 'v*'  # release on version tags (e.g. v2.0.0)
+      - 'v2.*'  # Python releases (v3 is built by rust.yml)
   pull_request:
   workflow_dispatch:
     inputs:
