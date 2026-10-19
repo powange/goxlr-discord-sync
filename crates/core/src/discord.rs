@@ -20,7 +20,10 @@ pub enum RpcError {
     /// The connection was closed.
     Closed(String),
     /// Discord answered with an ERROR event.
-    Rpc { code: Option<i64>, message: String },
+    Rpc {
+        code: Option<i64>,
+        message: String,
+    },
     Timeout,
 }
 
@@ -29,7 +32,11 @@ impl std::fmt::Display for RpcError {
         match self {
             RpcError::Unavailable(m) => write!(f, "Discord not available: {m}"),
             RpcError::Closed(m) => write!(f, "Discord connection closed: {m}"),
-            RpcError::Rpc { code, message } => write!(f, "{message} (code {})", code.map_or("?".into(), |c| c.to_string())),
+            RpcError::Rpc { code, message } => write!(
+                f,
+                "{message} (code {})",
+                code.map_or("?".into(), |c| c.to_string())
+            ),
             RpcError::Timeout => write!(f, "Discord did not answer in time"),
         }
     }
@@ -42,7 +49,13 @@ pub type EventSink = Rc<dyn Fn(&str, Value)>;
 /// One RPC connection, as the engine sees it (faked in tests).
 #[async_trait(?Send)]
 pub trait DiscordConnection {
-    async fn command(&self, cmd: &str, args: Value, evt: Option<&str>, timeout: Duration) -> Result<Value, RpcError>;
+    async fn command(
+        &self,
+        cmd: &str,
+        args: Value,
+        evt: Option<&str>,
+        timeout: Duration,
+    ) -> Result<Value, RpcError>;
     /// Resolves with the reason once the connection is closed.
     async fn wait_closed(&self) -> String;
     fn close(&self);
@@ -50,7 +63,11 @@ pub trait DiscordConnection {
 
 #[async_trait(?Send)]
 pub trait DiscordConnector {
-    async fn connect(&self, client_id: &str, events: EventSink) -> Result<Rc<dyn DiscordConnection>, RpcError>;
+    async fn connect(
+        &self,
+        client_id: &str,
+        events: EventSink,
+    ) -> Result<Rc<dyn DiscordConnection>, RpcError>;
 }
 
 /// Typed helpers over the raw commands.
@@ -61,13 +78,26 @@ impl Rpc<'_> {
         self.0.command(cmd, args, None, DEFAULT_TIMEOUT).await
     }
     pub async fn authorize(&self, client_id: &str, scopes: &[&str]) -> Result<String, RpcError> {
-        let data = self.0.command("AUTHORIZE", json!({"client_id": client_id, "scopes": scopes}), None,
-                                  AUTHORIZE_TIMEOUT).await?;
-        data["code"].as_str().map(str::to_string)
-            .ok_or(RpcError::Rpc { code: None, message: "Discord returned no authorization code".into() })
+        let data = self
+            .0
+            .command(
+                "AUTHORIZE",
+                json!({"client_id": client_id, "scopes": scopes}),
+                None,
+                AUTHORIZE_TIMEOUT,
+            )
+            .await?;
+        data["code"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or(RpcError::Rpc {
+                code: None,
+                message: "Discord returned no authorization code".into(),
+            })
     }
     pub async fn authenticate(&self, token: &str) -> Result<Value, RpcError> {
-        self.call("AUTHENTICATE", json!({"access_token": token})).await
+        self.call("AUTHENTICATE", json!({"access_token": token}))
+            .await
     }
     pub async fn get_voice_settings(&self) -> Result<Value, RpcError> {
         self.call("GET_VOICE_SETTINGS", json!({})).await
@@ -76,7 +106,9 @@ impl Rpc<'_> {
         self.call("SET_VOICE_SETTINGS", args).await
     }
     pub async fn subscribe(&self, evt: &str) -> Result<Value, RpcError> {
-        self.0.command("SUBSCRIBE", json!({}), Some(evt), DEFAULT_TIMEOUT).await
+        self.0
+            .command("SUBSCRIBE", json!({}), Some(evt), DEFAULT_TIMEOUT)
+            .await
     }
     pub async fn get_selected_voice_channel(&self) -> Result<Value, RpcError> {
         self.call("GET_SELECTED_VOICE_CHANNEL", json!({})).await
@@ -86,7 +118,11 @@ impl Rpc<'_> {
     }
     /// Join a voice channel, or leave the current one with None.
     pub async fn select_voice_channel(&self, channel_id: Option<&str>) -> Result<Value, RpcError> {
-        self.call("SELECT_VOICE_CHANNEL", json!({"channel_id": channel_id, "force": true})).await
+        self.call(
+            "SELECT_VOICE_CHANNEL",
+            json!({"channel_id": channel_id, "force": true}),
+        )
+        .await
     }
 }
 
@@ -107,19 +143,31 @@ async fn open() -> Result<(Reader, Writer), RpcError> {
             Err(e) => last = e.to_string(),
         }
     }
-    Err(RpcError::Unavailable(format!("Discord is not running ({last})")))
+    Err(RpcError::Unavailable(format!(
+        "Discord is not running ({last})"
+    )))
 }
 
 #[cfg(not(windows))]
 pub fn ipc_paths() -> Vec<std::path::PathBuf> {
     let mut bases: Vec<String> = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
-        .iter().filter_map(|v| std::env::var(v).ok()).filter(|v| !v.is_empty()).collect();
+        .iter()
+        .filter_map(|v| std::env::var(v).ok())
+        .filter(|v| !v.is_empty())
+        .collect();
     bases.push("/tmp".into());
     let mut out = Vec::new();
     for base in bases {
-        for sub in ["", "app/com.discordapp.Discord", "snap.discord", ".flatpak/dev.vencord.Vesktop/xdg-run"] {
+        for sub in [
+            "",
+            "app/com.discordapp.Discord",
+            "snap.discord",
+            ".flatpak/dev.vencord.Vesktop/xdg-run",
+        ] {
             for i in 0..10 {
-                let path = std::path::Path::new(&base).join(sub).join(format!("discord-ipc-{i}"));
+                let path = std::path::Path::new(&base)
+                    .join(sub)
+                    .join(format!("discord-ipc-{i}"));
                 if !out.contains(&path) {
                     out.push(path);
                 }
@@ -144,7 +192,9 @@ async fn open() -> Result<(Reader, Writer), RpcError> {
             Err(e) => last = e.to_string(),
         }
     }
-    Err(RpcError::Unavailable(format!("Discord is not running ({last})")))
+    Err(RpcError::Unavailable(format!(
+        "Discord is not running ({last})"
+    )))
 }
 
 fn frame(op: u32, payload: &Value) -> Vec<u8> {
@@ -168,7 +218,11 @@ pub struct DiscordIpcConnector;
 
 #[async_trait(?Send)]
 impl DiscordConnector for DiscordIpcConnector {
-    async fn connect(&self, client_id: &str, events: EventSink) -> Result<Rc<dyn DiscordConnection>, RpcError> {
+    async fn connect(
+        &self,
+        client_id: &str,
+        events: EventSink,
+    ) -> Result<Rc<dyn DiscordConnection>, RpcError> {
         Ok(Rc::new(DiscordIpc::connect(client_id, events).await?))
     }
 }
@@ -177,7 +231,9 @@ impl DiscordIpc {
     /// Open the socket, handshake and wait for READY (must run inside a LocalSet).
     pub async fn connect(client_id: &str, events: EventSink) -> Result<DiscordIpc, RpcError> {
         let (mut reader, mut writer) = open().await?;
-        writer.write_all(&frame(0, &json!({"v": 1, "client_id": client_id}))).await
+        writer
+            .write_all(&frame(0, &json!({"v": 1, "client_id": client_id})))
+            .await
             .map_err(|e| RpcError::Unavailable(e.to_string()))?;
         let writer = Rc::new(tokio::sync::Mutex::new(writer));
         let pong_writer = writer.clone();
@@ -205,9 +261,19 @@ impl DiscordIpc {
                 }
                 match op {
                     1 => {}
-                    2 => break format!("{} (code {})", payload["message"].as_str().unwrap_or("closed by Discord"), payload["code"]),
+                    2 => {
+                        break format!(
+                            "{} (code {})",
+                            payload["message"].as_str().unwrap_or("closed by Discord"),
+                            payload["code"]
+                        )
+                    }
                     3 => {
-                        let _ = pong_writer.lock().await.write_all(&frame(4, &payload)).await; // PING -> PONG
+                        let _ = pong_writer
+                            .lock()
+                            .await
+                            .write_all(&frame(4, &payload))
+                            .await; // PING -> PONG
                         continue;
                     }
                     _ => continue,
@@ -216,11 +282,18 @@ impl DiscordIpc {
                 let data = payload["data"].clone();
                 let error = || RpcError::Rpc {
                     code: data["code"].as_i64(),
-                    message: data["message"].as_str().unwrap_or("unknown error").to_string(),
+                    message: data["message"]
+                        .as_str()
+                        .unwrap_or("unknown error")
+                        .to_string(),
                 };
                 if let Some(nonce) = payload["nonce"].as_str() {
                     if let Some(tx) = reader_pending.borrow_mut().remove(nonce) {
-                        let _ = tx.send(if evt == "ERROR" { Err(error()) } else { Ok(data) });
+                        let _ = tx.send(if evt == "ERROR" {
+                            Err(error())
+                        } else {
+                            Ok(data)
+                        });
                         continue;
                     }
                 }
@@ -254,7 +327,9 @@ impl DiscordIpc {
             Ok(Ok(Err(e))) => Err(e),
             _ => {
                 ipc.close();
-                Err(RpcError::Unavailable("Discord did not answer the RPC handshake".into()))
+                Err(RpcError::Unavailable(
+                    "Discord did not answer the RPC handshake".into(),
+                ))
             }
         }
     }
@@ -262,7 +337,13 @@ impl DiscordIpc {
 
 #[async_trait(?Send)]
 impl DiscordConnection for DiscordIpc {
-    async fn command(&self, cmd: &str, args: Value, evt: Option<&str>, timeout: Duration) -> Result<Value, RpcError> {
+    async fn command(
+        &self,
+        cmd: &str,
+        args: Value,
+        evt: Option<&str>,
+        timeout: Duration,
+    ) -> Result<Value, RpcError> {
         if let Some(reason) = self.closed.borrow().clone() {
             return Err(RpcError::Closed(reason));
         }
@@ -274,7 +355,12 @@ impl DiscordConnection for DiscordIpc {
         if let Some(evt) = evt {
             payload["evt"] = json!(evt);
         }
-        let written = self.writer.lock().await.write_all(&frame(1, &payload)).await;
+        let written = self
+            .writer
+            .lock()
+            .await
+            .write_all(&frame(1, &payload))
+            .await;
         let result = match written {
             Err(e) => Err(RpcError::Closed(e.to_string())),
             Ok(()) => match tokio::time::timeout(timeout, rx).await {
@@ -329,7 +415,11 @@ mod tests {
         if buf.len() < 8 + len {
             return None;
         }
-        Some((op, serde_json::from_slice(&buf[8..8 + len]).unwrap_or(Value::Null), 8 + len))
+        Some((
+            op,
+            serde_json::from_slice(&buf[8..8 + len]).unwrap_or(Value::Null),
+            8 + len,
+        ))
     }
 
     /// Fake Discord client: READY, AUTHENTICATE, voice settings (event sent BEFORE the response).
@@ -350,13 +440,24 @@ mod tests {
                 buf.drain(..used);
                 if op == 0 {
                     if msg["client_id"] == "bad" {
-                        w.write_all(&frame(2, &json!({"code": 4000, "message": "Invalid Client ID"}))).await.unwrap();
+                        w.write_all(&frame(
+                            2,
+                            &json!({"code": 4000, "message": "Invalid Client ID"}),
+                        ))
+                        .await
+                        .unwrap();
                         return;
                     }
-                    w.write_all(&frame(1, &json!({"cmd": "DISPATCH", "evt": "READY", "data": {"v": 1}}))).await.unwrap();
+                    w.write_all(&frame(
+                        1,
+                        &json!({"cmd": "DISPATCH", "evt": "READY", "data": {"v": 1}}),
+                    ))
+                    .await
+                    .unwrap();
                     continue;
                 }
-                let mut reply = json!({"cmd": msg["cmd"], "nonce": msg["nonce"], "evt": null, "data": {}});
+                let mut reply =
+                    json!({"cmd": msg["cmd"], "nonce": msg["nonce"], "evt": null, "data": {}});
                 match msg["cmd"].as_str().unwrap() {
                     "AUTHENTICATE" if msg["args"]["access_token"] != "good" => {
                         reply["evt"] = json!("ERROR");
@@ -368,8 +469,13 @@ mod tests {
                         for (k, v) in msg["args"].as_object().unwrap() {
                             voice[k] = v.clone();
                         }
-                        w.write_all(&frame(1, &json!({"cmd": "DISPATCH", "evt": "VOICE_SETTINGS_UPDATE",
-                                                       "data": voice.clone(), "nonce": null}))).await.unwrap();
+                        w.write_all(&frame(
+                            1,
+                            &json!({"cmd": "DISPATCH", "evt": "VOICE_SETTINGS_UPDATE",
+                                                       "data": voice.clone(), "nonce": null}),
+                        ))
+                        .await
+                        .unwrap();
                         reply["data"] = voice.clone();
                     }
                     _ => {}
@@ -387,7 +493,10 @@ mod tests {
     static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[allow(clippy::await_holding_lock)] // the guard serialises the tests on purpose
-    async fn with_fake<F: std::future::Future<Output = ()>>(close_after: Option<usize>, test: impl FnOnce() -> F) {
+    async fn with_fake<F: std::future::Future<Output = ()>>(
+        close_after: Option<usize>,
+        test: impl FnOnce() -> F,
+    ) {
         let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("XDG_RUNTIME_DIR", dir.path());
@@ -402,30 +511,52 @@ mod tests {
         with_fake(None, || async {
             let seen: Rc<RefCell<Vec<(String, Value)>>> = Rc::default();
             let sink = seen.clone();
-            let ipc = DiscordIpc::connect("123", Rc::new(move |e: &str, d: Value| sink.borrow_mut().push((e.into(), d))))
-                .await.unwrap();
+            let ipc = DiscordIpc::connect(
+                "123",
+                Rc::new(move |e: &str, d: Value| sink.borrow_mut().push((e.into(), d))),
+            )
+            .await
+            .unwrap();
             let rpc = Rpc(&ipc);
             rpc.authenticate("good").await.unwrap();
             let result = rpc.set_voice_settings(json!({"mute": true})).await.unwrap();
             assert_eq!(result["mute"], true);
             assert_eq!(rpc.get_voice_settings().await.unwrap()["mute"], true);
             let (evt, data) = seen.borrow()[0].clone();
-            assert_eq!((evt.as_str(), &data["mute"]), ("VOICE_SETTINGS_UPDATE", &json!(true)));
+            assert_eq!(
+                (evt.as_str(), &data["mute"]),
+                ("VOICE_SETTINGS_UPDATE", &json!(true))
+            );
             assert_eq!(rpc.authorize("123", &["rpc"]).await.unwrap(), "the-code");
             let err = rpc.authenticate("expired").await.unwrap_err();
-            assert_eq!(err, RpcError::Rpc { code: Some(4009), message: "Invalid access token".into() });
-        }).await;
+            assert_eq!(
+                err,
+                RpcError::Rpc {
+                    code: Some(4009),
+                    message: "Invalid access token".into()
+                }
+            );
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn server_close_is_detected() {
         with_fake(Some(1), || async {
-            let ipc = DiscordIpc::connect("123", Rc::new(|_: &str, _: Value| {})).await.unwrap();
+            let ipc = DiscordIpc::connect("123", Rc::new(|_: &str, _: Value| {}))
+                .await
+                .unwrap();
             Rpc(&ipc).authenticate("good").await.unwrap();
-            let reason = tokio::time::timeout(Duration::from_secs(2), ipc.wait_closed()).await.unwrap();
+            let reason = tokio::time::timeout(Duration::from_secs(2), ipc.wait_closed())
+                .await
+                .unwrap();
             assert!(reason.contains("connection lost"));
-            assert!(matches!(Rpc(&ipc).get_voice_settings().await, Err(RpcError::Closed(_))));
-        }).await;
+            assert!(matches!(
+                Rpc(&ipc).get_voice_settings().await,
+                Err(RpcError::Closed(_))
+            ));
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -435,6 +566,7 @@ mod tests {
                 Err(RpcError::Unavailable(m)) => assert!(m.contains("Invalid Client ID"), "{m}"),
                 other => panic!("unexpected {:?}", other.err()),
             }
-        }).await;
+        })
+        .await;
     }
 }

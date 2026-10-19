@@ -17,17 +17,39 @@ pub const MUTE_TARGETS: [(&str, &str); 5] = [
 
 /// GoXLR channels that can be assigned to a fader.
 pub const FADER_CHANNELS: [&str; 11] = [
-    "Chat", "Game", "Music", "System", "Console", "LineIn", "Sample", "Mic", "Headphones", "MicMonitor", "LineOut",
+    "Chat",
+    "Game",
+    "Music",
+    "System",
+    "Console",
+    "LineIn",
+    "Sample",
+    "Mic",
+    "Headphones",
+    "MicMonitor",
+    "LineOut",
 ];
 
 /// GoXLR buttons that can trigger a Discord action (Cough and fader mutes are already synced).
 pub const ACTION_BUTTONS: [(&str, &str); 19] = [
-    ("Bleep", "Bleep"), ("EffectFx", "FX"), ("EffectMegaphone", "Megaphone"), ("EffectRobot", "Robot"),
-    ("EffectHardTune", "Hard Tune"), ("EffectSelect1", "Effect preset 1"), ("EffectSelect2", "Effect preset 2"),
-    ("EffectSelect3", "Effect preset 3"), ("EffectSelect4", "Effect preset 4"), ("EffectSelect5", "Effect preset 5"),
-    ("EffectSelect6", "Effect preset 6"), ("SamplerSelectA", "Sampler bank A"), ("SamplerSelectB", "Sampler bank B"),
-    ("SamplerSelectC", "Sampler bank C"), ("SamplerTopLeft", "Sampler top left"), ("SamplerTopRight", "Sampler top right"),
-    ("SamplerBottomLeft", "Sampler bottom left"), ("SamplerBottomRight", "Sampler bottom right"),
+    ("Bleep", "Bleep"),
+    ("EffectFx", "FX"),
+    ("EffectMegaphone", "Megaphone"),
+    ("EffectRobot", "Robot"),
+    ("EffectHardTune", "Hard Tune"),
+    ("EffectSelect1", "Effect preset 1"),
+    ("EffectSelect2", "Effect preset 2"),
+    ("EffectSelect3", "Effect preset 3"),
+    ("EffectSelect4", "Effect preset 4"),
+    ("EffectSelect5", "Effect preset 5"),
+    ("EffectSelect6", "Effect preset 6"),
+    ("SamplerSelectA", "Sampler bank A"),
+    ("SamplerSelectB", "Sampler bank B"),
+    ("SamplerSelectC", "Sampler bank C"),
+    ("SamplerTopLeft", "Sampler top left"),
+    ("SamplerTopRight", "Sampler top right"),
+    ("SamplerBottomLeft", "Sampler bottom left"),
+    ("SamplerBottomRight", "Sampler bottom right"),
     ("SamplerClear", "Sampler clear"),
 ];
 
@@ -95,19 +117,39 @@ impl Config {
     /// Lenient reading: unknown keys and invalid values keep their defaults.
     pub fn from_value(data: &Value) -> Config {
         let mut cfg = Config::default();
-        let Some(map) = data.as_object() else { return cfg };
-        let text = |k: &str| map.get(k).and_then(Value::as_str).map(|s| s.trim().to_string());
+        let Some(map) = data.as_object() else {
+            return cfg;
+        };
+        let text = |k: &str| {
+            map.get(k)
+                .and_then(Value::as_str)
+                .map(|s| s.trim().to_string())
+        };
         let flag = |k: &str, d: bool| map.get(k).and_then(Value::as_bool).unwrap_or(d);
         let targets = |k: &str, d: &Vec<String>| match map.get(k).and_then(Value::as_array) {
-            Some(list) => list.iter().filter_map(Value::as_str)
-                .filter(|t| MUTE_TARGETS.iter().any(|(m, _)| m == t)).map(str::to_string).collect(),
+            Some(list) => list
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|t| MUTE_TARGETS.iter().any(|(m, _)| m == t))
+                .map(str::to_string)
+                .collect(),
             None => d.clone(),
         };
-        if let Some(v) = text("client_id") { cfg.client_id = v; }
-        if let Some(v) = text("mixer_serial") { cfg.mixer_serial = v; }
-        if let Some(v) = text("goxlr_url").filter(|v| !v.is_empty()) { cfg.goxlr_url = v; }
-        if let Some(v) = text("deafen_channel").filter(|v| !v.is_empty()) { cfg.deafen_channel = v; }
-        if let Some(v) = text("language").filter(|v| matches!(v.as_str(), "auto" | "en" | "fr")) { cfg.language = v; }
+        if let Some(v) = text("client_id") {
+            cfg.client_id = v;
+        }
+        if let Some(v) = text("mixer_serial") {
+            cfg.mixer_serial = v;
+        }
+        if let Some(v) = text("goxlr_url").filter(|v| !v.is_empty()) {
+            cfg.goxlr_url = v;
+        }
+        if let Some(v) = text("deafen_channel").filter(|v| !v.is_empty()) {
+            cfg.deafen_channel = v;
+        }
+        if let Some(v) = text("language").filter(|v| matches!(v.as_str(), "auto" | "en" | "fr")) {
+            cfg.language = v;
+        }
         cfg.cough_sync = flag("cough_sync", cfg.cough_sync);
         cfg.chat_sync = flag("chat_sync", cfg.chat_sync);
         cfg.bidirectional = flag("bidirectional", cfg.bidirectional);
@@ -115,13 +157,22 @@ impl Config {
         cfg.check_updates = flag("check_updates", cfg.check_updates);
         cfg.mute_triggers = targets("mute_triggers", &cfg.mute_triggers);
         cfg.deafen_triggers = targets("deafen_triggers", &cfg.deafen_triggers);
-        if let Some(port) = map.get("oauth_port").and_then(Value::as_u64).filter(|p| (1..=65535).contains(p)) {
+        if let Some(port) = map
+            .get("oauth_port")
+            .and_then(Value::as_u64)
+            .filter(|p| (1..=65535).contains(p))
+        {
             cfg.oauth_port = port as u16;
         }
         if let Some(actions) = map.get("button_actions").and_then(Value::as_object) {
-            cfg.button_actions = actions.iter()
+            cfg.button_actions = actions
+                .iter()
                 .filter(|(a, _)| BUTTON_ACTIONS.iter().any(|(k, _)| k == a))
-                .filter_map(|(a, b)| b.as_str().filter(|b| action_buttons().any(|(k, _)| k == *b)).map(|b| (a.clone(), b.to_string())))
+                .filter_map(|(a, b)| {
+                    b.as_str()
+                        .filter(|b| action_buttons().any(|(k, _)| k == *b))
+                        .map(|b| (a.clone(), b.to_string()))
+                })
                 .collect();
         }
         cfg
@@ -132,7 +183,8 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Config {
-        std::fs::read_to_string(path).ok()
+        std::fs::read_to_string(path)
+            .ok()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .map(|v| Config::from_value(&v))
             .unwrap_or_default()
@@ -148,11 +200,15 @@ pub fn data_dir() -> PathBuf {
     let dir = if let Ok(home) = std::env::var("GOXLR_DISCORD_SYNC_HOME") {
         PathBuf::from(home)
     } else if cfg!(windows) {
-        PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into())).join("GoXLR Discord Sync")
+        PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into()))
+            .join("GoXLR Discord Sync")
     } else if cfg!(target_os = "macos") {
-        PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/GoXLR Discord Sync")
+        PathBuf::from(std::env::var("HOME").unwrap_or_default())
+            .join("Library/Application Support/GoXLR Discord Sync")
     } else {
-        let base = std::env::var("XDG_CONFIG_HOME").ok().filter(|v| !v.is_empty())
+        let base = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|v| !v.is_empty())
             .unwrap_or_else(|| format!("{}/.config", std::env::var("HOME").unwrap_or_default()));
         PathBuf::from(base).join("goxlr-discord-sync")
     };
@@ -244,7 +300,11 @@ mod tests {
     fn roundtrip_and_validation() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        let mut cfg = Config { client_id: "42".into(), oauth_port: 9000, ..Config::default() };
+        let mut cfg = Config {
+            client_id: "42".into(),
+            oauth_port: 9000,
+            ..Config::default()
+        };
         cfg.mute_triggers = vec!["All".into()];
         cfg.save(&path).unwrap();
         assert_eq!(Config::load(&path), cfg);
@@ -259,7 +319,14 @@ mod tests {
         assert_eq!(loaded.mute_triggers, vec!["All".to_string()]);
         assert_eq!(loaded.goxlr_url, DEFAULT_GOXLR_URL);
         assert_eq!(loaded.language, "auto");
-        assert_eq!(loaded.button_actions.clone().into_iter().collect::<Vec<_>>(), vec![("toggle_mute".into(), "Bleep".into())]);
+        assert_eq!(
+            loaded
+                .button_actions
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![("toggle_mute".into(), "Bleep".into())]
+        );
         assert_eq!(loaded.redirect_uri(), "http://127.0.0.1:9543/callback");
     }
 

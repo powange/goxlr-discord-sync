@@ -48,12 +48,16 @@ impl StatusDoc {
 
     /// Apply RFC 6902 operations; Err means the document must be reloaded.
     pub fn apply_patch(&mut self, ops: &Value) -> Result<(), String> {
-        let patch: json_patch::Patch = serde_json::from_value(ops.clone()).map_err(|e| e.to_string())?;
+        let patch: json_patch::Patch =
+            serde_json::from_value(ops.clone()).map_err(|e| e.to_string())?;
         json_patch::patch(&mut self.doc, &patch).map_err(|e| e.to_string())
     }
 
     pub fn mixers(&self) -> Vec<String> {
-        self.doc["mixers"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default()
+        self.doc["mixers"]
+            .as_object()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// The configured device, or the first one when none is configured.
@@ -76,10 +80,19 @@ impl StatusDoc {
         if let Some(faders) = mixer["fader_status"].as_object() {
             let mut names: Vec<&String> = faders.keys().collect();
             names.sort();
-            fader = names.into_iter().find(|n| faders[*n]["channel"] == deafen_channel).map(|n| (n.clone(), &faders[n]));
+            fader = names
+                .into_iter()
+                .find(|n| faders[*n]["channel"] == deafen_channel)
+                .map(|n| (n.clone(), &faders[n]));
         }
-        let buttons_down = mixer["button_down"].as_object()
-            .map(|b| b.iter().filter(|(_, down)| **down == Value::Bool(true)).map(|(k, _)| k.clone()).collect())
+        let buttons_down = mixer["button_down"]
+            .as_object()
+            .map(|b| {
+                b.iter()
+                    .filter(|(_, down)| **down == Value::Bool(true))
+                    .map(|(k, _)| k.clone())
+                    .collect()
+            })
             .unwrap_or_default();
         Some(MixerSnapshot {
             serial,
@@ -148,11 +161,14 @@ impl GoxlrClient {
     async fn send(&self, payload: Value) -> Result<(), String> {
         let mut sink = self.sink.lock().await;
         let sink = sink.as_mut().ok_or("GoXLR Utility is not connected")?;
-        sink.send(Message::text(payload.to_string())).await.map_err(|e| e.to_string())
+        sink.send(Message::text(payload.to_string()))
+            .await
+            .map_err(|e| e.to_string())
     }
 
     async fn request_status(&self) -> Result<(), String> {
-        self.send(json!({"id": self.id(), "data": "GetStatus"})).await
+        self.send(json!({"id": self.id(), "data": "GetStatus"}))
+            .await
     }
 
     async fn handle(&self, raw: &str) -> Result<(), String> {
@@ -186,9 +202,12 @@ impl GoxlrClient {
 #[async_trait(?Send)]
 impl GoxlrConnection for GoxlrClient {
     async fn run(&self) -> Result<(), String> {
-        let config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE_SIZE)).max_frame_size(Some(MAX_MESSAGE_SIZE));
+        let config = WebSocketConfig::default()
+            .max_message_size(Some(MAX_MESSAGE_SIZE))
+            .max_frame_size(Some(MAX_MESSAGE_SIZE));
         let connect = tokio_tungstenite::connect_async_with_config(&self.url, Some(config), false);
-        let (ws, _) = tokio::time::timeout(Duration::from_secs(5), connect).await
+        let (ws, _) = tokio::time::timeout(Duration::from_secs(5), connect)
+            .await
             .map_err(|_| "timeout".to_string())?
             .map_err(|e| e.to_string())?;
         let (sink, mut stream) = ws.split();
@@ -203,7 +222,8 @@ impl GoxlrConnection for GoxlrClient {
                 }
             }
             Ok::<(), String>(())
-        }.await;
+        }
+        .await;
         *self.sink.lock().await = None;
         *self.status.borrow_mut() = None;
         self.pending.borrow_mut().clear(); // waiting commands fail with "closed"
@@ -214,15 +234,18 @@ impl GoxlrConnection for GoxlrClient {
         let id = self.id();
         let (tx, rx) = oneshot::channel();
         self.pending.borrow_mut().insert(id, tx);
-        let sent = self.send(json!({"id": id, "data": {"Command": [serial, command.clone()]}})).await;
+        let sent = self
+            .send(json!({"id": id, "data": {"Command": [serial, command.clone()]}}))
+            .await;
         let result = match sent {
             Err(e) => Err(e),
             Ok(()) => match tokio::time::timeout(Duration::from_secs(5), rx).await {
                 Err(_) => Err("timeout".into()),
                 Ok(Err(_)) => Err("GoXLR Utility connection closed".into()),
-                Ok(Ok(answer)) if answer.get("Error").is_some() => {
-                    Err(format!("GoXLR Utility refused {command}: {}", answer["Error"]))
-                }
+                Ok(Ok(answer)) if answer.get("Error").is_some() => Err(format!(
+                    "GoXLR Utility refused {command}: {}",
+                    answer["Error"]
+                )),
                 Ok(Ok(_)) => Ok(()),
             },
         };
@@ -237,6 +260,68 @@ impl GoxlrConnection for GoxlrClient {
     fn status(&self) -> Option<StatusDoc> {
         self.status.borrow().clone()
     }
+}
+
+/// A GoXLR seen by "Detect" in the settings: its serial and (fader, channel) pairs.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct Device {
+    pub serial: String,
+    pub faders: Vec<(String, String)>,
+}
+
+/// One-shot status read for the settings window (Send: usable from any thread).
+pub async fn detect_devices(url: &str) -> Result<Vec<Device>, String> {
+    let config = WebSocketConfig::default()
+        .max_message_size(Some(MAX_MESSAGE_SIZE))
+        .max_frame_size(Some(MAX_MESSAGE_SIZE));
+    let connect = tokio_tungstenite::connect_async_with_config(url, Some(config), false);
+    let (mut ws, _) = tokio::time::timeout(Duration::from_secs(3), connect)
+        .await
+        .map_err(|_| "timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+    ws.send(Message::text(
+        json!({"id": 1, "data": "GetStatus"}).to_string(),
+    ))
+    .await
+    .map_err(|e| e.to_string())?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while let Ok(Some(message)) = tokio::time::timeout_at(deadline, ws.next()).await {
+        let Ok(Message::Text(raw)) = message else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        let Some(mixers) = value["data"]["Status"]["mixers"].as_object() else {
+            continue;
+        };
+        let mut devices: Vec<Device> = mixers
+            .iter()
+            .map(|(serial, mixer)| {
+                let mut faders: Vec<(String, String)> = mixer["fader_status"]
+                    .as_object()
+                    .map(|f| {
+                        f.iter()
+                            .map(|(name, info)| {
+                                (
+                                    name.clone(),
+                                    info["channel"].as_str().unwrap_or("?").to_string(),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                faders.sort();
+                Device {
+                    serial: serial.clone(),
+                    faders,
+                }
+            })
+            .collect();
+        devices.sort_by(|a, b| a.serial.cmp(&b.serial));
+        return Ok(devices);
+    }
+    Err("GoXLR Utility did not send its status".into())
 }
 
 #[cfg(test)]
@@ -259,8 +344,12 @@ mod tests {
     #[test]
     fn patch_errors_are_reported() {
         let mut st = StatusDoc::new(json!({"a": [1]}));
-        assert!(st.apply_patch(&json!([{"op": "replace", "path": "/missing/key", "value": 1}])).is_err());
-        assert!(st.apply_patch(&json!([{"op": "replace", "path": "/a/5/b", "value": 1}])).is_err());
+        assert!(st
+            .apply_patch(&json!([{"op": "replace", "path": "/missing/key", "value": 1}]))
+            .is_err());
+        assert!(st
+            .apply_patch(&json!([{"op": "replace", "path": "/a/5/b", "value": 1}]))
+            .is_err());
         assert!(st.apply_patch(&json!("not a patch")).is_err());
     }
 
@@ -268,12 +357,22 @@ mod tests {
     fn snapshot_follows_fader_reassignment() {
         let mut st = StatusDoc::new(json!({"mixers": {"S1": mixer("Unmuted", "All")}}));
         let snap = st.snapshot("", "Chat").unwrap();
-        assert_eq!((snap.serial.as_str(), snap.deafen_fader.as_deref(), snap.deafen_mute_type.as_deref()),
-                   ("S1", Some("B"), Some("ToPhones")));
+        assert_eq!(
+            (
+                snap.serial.as_str(),
+                snap.deafen_fader.as_deref(),
+                snap.deafen_mute_type.as_deref()
+            ),
+            ("S1", Some("B"), Some("ToPhones"))
+        );
         st.apply_patch(&json!([
             {"op": "replace", "path": "/mixers/S1/fader_status/B/channel", "value": "Game"},
-            {"op": "replace", "path": "/mixers/S1/fader_status/D/channel", "value": "Chat"}])).unwrap();
-        assert_eq!(st.snapshot("", "Chat").unwrap().deafen_fader.as_deref(), Some("D"));
+            {"op": "replace", "path": "/mixers/S1/fader_status/D/channel", "value": "Chat"}]))
+            .unwrap();
+        assert_eq!(
+            st.snapshot("", "Chat").unwrap().deafen_fader.as_deref(),
+            Some("D")
+        );
         st.apply_patch(&json!([{"op": "replace", "path": "/mixers/S1/fader_status/D/channel", "value": "Music"}])).unwrap();
         let snap = st.snapshot("", "Chat").unwrap();
         assert!(snap.deafen_fader.is_none() && snap.deafen_state.is_none());
@@ -281,20 +380,32 @@ mod tests {
 
     #[test]
     fn snapshot_picks_the_configured_device_only() {
-        let st = StatusDoc::new(json!({"mixers": {"S2": mixer("MutedToAll", "All"), "S1": mixer("Unmuted", "All")}}));
+        let st = StatusDoc::new(
+            json!({"mixers": {"S2": mixer("MutedToAll", "All"), "S1": mixer("Unmuted", "All")}}),
+        );
         assert_eq!(st.snapshot("", "Chat").unwrap().serial, "S1");
-        assert_eq!(st.snapshot("S2", "Chat").unwrap().cough_state.as_deref(), Some("MutedToAll"));
+        assert_eq!(
+            st.snapshot("S2", "Chat").unwrap().cough_state.as_deref(),
+            Some("MutedToAll")
+        );
         assert!(st.snapshot("unknown", "Chat").is_none());
-        assert!(StatusDoc::new(json!({"mixers": {}})).snapshot("", "Chat").is_none());
+        assert!(StatusDoc::new(json!({"mixers": {}}))
+            .snapshot("", "Chat")
+            .is_none());
     }
 
     #[test]
     fn snapshot_tolerates_unexpected_types_and_reads_buttons() {
-        let st = StatusDoc::new(json!({"mixers": {"S1": {"cough_button": null, "fader_status": "?",
-            "button_down": {"Bleep": true, "SamplerClear": false, "Odd": "yes"}}}}));
+        let st = StatusDoc::new(
+            json!({"mixers": {"S1": {"cough_button": null, "fader_status": "?",
+            "button_down": {"Bleep": true, "SamplerClear": false, "Odd": "yes"}}}}),
+        );
         let snap = st.snapshot("", "Chat").unwrap();
         assert!(snap.cough_state.is_none() && snap.deafen_fader.is_none());
-        assert_eq!(snap.buttons_down.into_iter().collect::<Vec<_>>(), vec!["Bleep".to_string()]);
+        assert_eq!(
+            snap.buttons_down.into_iter().collect::<Vec<_>>(),
+            vec!["Bleep".to_string()]
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

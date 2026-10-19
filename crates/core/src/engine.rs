@@ -118,7 +118,10 @@ pub struct Hooks {
 
 impl Default for Hooks {
     fn default() -> Self {
-        Hooks { on_change: Box::new(|| {}), notify: Box::new(|_, _| {}) }
+        Hooks {
+            on_change: Box::new(|| {}),
+            notify: Box::new(|_, _| {}),
+        }
     }
 }
 
@@ -258,7 +261,11 @@ impl Engine {
     /// Runs until dropped (abort the task that awaits it).
     pub async fn run(&self) {
         let _cleanup = Cleanup(self.clone());
-        tokio::join!(self.goxlr_loop(), self.discord_loop(), self.reconcile_loop());
+        tokio::join!(
+            self.goxlr_loop(),
+            self.discord_loop(),
+            self.reconcile_loop()
+        );
     }
 
     fn spawn(&self, future: impl std::future::Future<Output = ()> + 'static) {
@@ -279,7 +286,8 @@ impl Engine {
 
     pub fn apply_config(&self, cfg: Config, credentials_changed: bool) {
         let old = self.inner.cfg.replace(cfg.clone());
-        if credentials_changed || old.client_id != cfg.client_id || old.oauth_port != cfg.oauth_port {
+        if credentials_changed || old.client_id != cfg.client_id || old.oauth_port != cfg.oauth_port
+        {
             log::info!("Discord application settings changed, reconnecting");
             if old.client_id != cfg.client_id {
                 self.inner.deps.tokens.clear(); // tokens belong to the previous application
@@ -291,7 +299,12 @@ impl Engine {
             log::info!("GoXLR Utility address changed, reconnecting");
             self.inner.goxlr_restart.set();
         }
-        let snap = self.inner.goxlr_status.borrow().as_ref().map(|s| s.snapshot(&cfg.mixer_serial, &cfg.deafen_channel));
+        let snap = self
+            .inner
+            .goxlr_status
+            .borrow()
+            .as_ref()
+            .map(|s| s.snapshot(&cfg.mixer_serial, &cfg.deafen_channel));
         if let Some(snap) = snap {
             *self.inner.snapshot.borrow_mut() = snap;
         }
@@ -332,7 +345,11 @@ impl Engine {
 
     fn changed(&self) {
         let cfg = self.inner.cfg.borrow();
-        let signature = (self.inner.status.borrow().clone(), cfg.cough_sync, cfg.chat_sync);
+        let signature = (
+            self.inner.status.borrow().clone(),
+            cfg.cough_sync,
+            cfg.chat_sync,
+        );
         drop(cfg);
         let differs = self.inner.last_signature.borrow().as_ref() != Some(&signature);
         if differs {
@@ -355,9 +372,14 @@ impl Engine {
                 timer.abort();
             }
             if inner.loss_notified.borrow_mut().remove(name) {
-                self.notify(&tr("{name} reconnected", &[("name", name)]), &tr("Synchronisation is running again.", &[]));
+                self.notify(
+                    &tr("{name} reconnected", &[("name", name)]),
+                    &tr("Synchronisation is running again.", &[]),
+                );
             }
-        } else if inner.ever_connected.borrow().contains(name) && !inner.loss_timers.borrow().contains_key(name) {
+        } else if inner.ever_connected.borrow().contains(name)
+            && !inner.loss_timers.borrow().contains_key(name)
+        {
             let weak = self.weak();
             let delay = inner.deps.timing.loss_notify_delay;
             let timer = spawn_local(async move {
@@ -373,11 +395,17 @@ impl Engine {
     fn loss_fire(&self, name: &'static str) {
         self.inner.loss_timers.borrow_mut().remove(name);
         let status = self.status();
-        let up = if name == GOXLR { status.goxlr_connected } else { status.discord_connected };
+        let up = if name == GOXLR {
+            status.goxlr_connected
+        } else {
+            status.discord_connected
+        };
         if !up {
             self.inner.loss_notified.borrow_mut().insert(name);
-            self.notify(&tr("{name} disconnected", &[("name", name)]),
-                        &tr("Mute synchronisation is paused until it comes back.", &[]));
+            self.notify(
+                &tr("{name} disconnected", &[("name", name)]),
+                &tr("Mute synchronisation is paused until it comes back.", &[]),
+            );
         }
     }
 
@@ -390,11 +418,14 @@ impl Engine {
             self.inner.goxlr_restart.clear();
             let url = self.inner.cfg.borrow().goxlr_url.clone();
             let weak = self.weak();
-            let conn = self.inner.deps.goxlr.create(&url, Rc::new(move || {
-                if let Some(engine) = Engine::from_weak(&weak) {
-                    engine.on_goxlr_update();
-                }
-            }));
+            let conn = self.inner.deps.goxlr.create(
+                &url,
+                Rc::new(move || {
+                    if let Some(engine) = Engine::from_weak(&weak) {
+                        engine.on_goxlr_update();
+                    }
+                }),
+            );
             *self.inner.goxlr_conn.borrow_mut() = Some(conn.clone());
             let reason = tokio::select! {
                 result = conn.run() => match result {
@@ -434,7 +465,9 @@ impl Engine {
     }
 
     fn on_goxlr_update(&self) {
-        let Some(conn) = self.inner.goxlr_conn.borrow().clone() else { return };
+        let Some(conn) = self.inner.goxlr_conn.borrow().clone() else {
+            return;
+        };
         let Some(doc) = conn.status() else { return };
         let cfg = self.config();
         let previous = self.inner.snapshot.borrow().clone();
@@ -442,18 +475,27 @@ impl Engine {
         *self.inner.goxlr_status.borrow_mut() = Some(doc);
         *self.inner.snapshot.borrow_mut() = snap.clone();
         if !self.inner.status.borrow().goxlr_connected {
-            log::info!("Connected to GoXLR Utility ({})", snap.as_ref().map_or("no device", |s| s.serial.as_str()));
+            log::info!(
+                "Connected to GoXLR Utility ({})",
+                snap.as_ref().map_or("no device", |s| s.serial.as_str())
+            );
             self.update(|s| s.goxlr_connected = true);
             self.connection_changed(GOXLR, true);
             if snap.as_ref().is_some_and(|s| s.deafen_fader.is_none()) {
-                log::info!("Channel {} is not assigned to a fader: deafen sync inactive", cfg.deafen_channel);
+                log::info!(
+                    "Channel {} is not assigned to a fader: deafen sync inactive",
+                    cfg.deafen_channel
+                );
             }
         }
         if let (Some(prev), Some(snap)) = (&previous, &snap) {
             if prev.serial == snap.serial {
                 for (action, button) in &cfg.button_actions {
                     if snap.buttons_down.contains(button) && !prev.buttons_down.contains(button) {
-                        let label = BUTTON_ACTIONS.iter().find(|(k, _)| k == action).map_or(action.as_str(), |(_, l)| l);
+                        let label = BUTTON_ACTIONS
+                            .iter()
+                            .find(|(k, _)| k == action)
+                            .map_or(action.as_str(), |(_, l)| l);
                         log::info!("GoXLR {button} pressed: {label}");
                         let engine = self.clone();
                         let action = action.clone();
@@ -462,13 +504,27 @@ impl Engine {
                 }
             }
             if prev.cough_state != snap.cough_state {
-                log::info!("Cough button: {:?} -> {:?} (mute function {:?})", prev.cough_state, snap.cough_state, snap.cough_mute_type);
+                log::info!(
+                    "Cough button: {:?} -> {:?} (mute function {:?})",
+                    prev.cough_state,
+                    snap.cough_state,
+                    snap.cough_mute_type
+                );
             }
             if prev.deafen_fader != snap.deafen_fader {
-                log::info!("{} channel moved to fader {:?}", cfg.deafen_channel, snap.deafen_fader);
+                log::info!(
+                    "{} channel moved to fader {:?}",
+                    cfg.deafen_channel,
+                    snap.deafen_fader
+                );
             } else if prev.deafen_state != snap.deafen_state {
-                log::info!("{} fader: {:?} -> {:?} (mute function {:?})", cfg.deafen_channel, prev.deafen_state,
-                           snap.deafen_state, snap.deafen_mute_type);
+                log::info!(
+                    "{} fader: {:?} -> {:?} (mute function {:?})",
+                    cfg.deafen_channel,
+                    prev.deafen_state,
+                    snap.deafen_state,
+                    snap.deafen_mute_type
+                );
             }
         }
         self.recompute(false);
@@ -479,20 +535,41 @@ impl Engine {
         let cfg = self.config();
         let (mut mute, mut deaf) = (None, None);
         if let Some(snap) = &snap {
-            mute = desired_flag(snap.cough_state.as_deref(), snap.cough_mute_type.as_deref(), &cfg.mute_triggers);
+            mute = desired_flag(
+                snap.cough_state.as_deref(),
+                snap.cough_mute_type.as_deref(),
+                &cfg.mute_triggers,
+            );
             if snap.deafen_fader.is_some() {
-                deaf = desired_flag(snap.deafen_state.as_deref(), snap.deafen_mute_type.as_deref(), &cfg.deafen_triggers);
+                deaf = desired_flag(
+                    snap.deafen_state.as_deref(),
+                    snap.deafen_mute_type.as_deref(),
+                    &cfg.deafen_triggers,
+                );
             }
         }
         let status = self.status();
         let wanted_changed = (mute, deaf) != (status.goxlr_mute, status.goxlr_deaf);
         let have_status = self.inner.goxlr_status.borrow().is_some();
-        let missing = (!cfg.mixer_serial.is_empty() && snap.is_none() && have_status).then(|| cfg.mixer_serial.clone());
+        let missing = (!cfg.mixer_serial.is_empty() && snap.is_none() && have_status)
+            .then(|| cfg.mixer_serial.clone());
         if missing != status.missing_device {
             if let Some(serial) = &missing {
-                let connected = self.inner.goxlr_status.borrow().as_ref().map(|s| s.mixers().join(", ")).unwrap_or_default();
-                log::warn!("GoXLR {serial} is not connected (connected: {}): sync paused",
-                           if connected.is_empty() { "none" } else { &connected });
+                let connected = self
+                    .inner
+                    .goxlr_status
+                    .borrow()
+                    .as_ref()
+                    .map(|s| s.mixers().join(", "))
+                    .unwrap_or_default();
+                log::warn!(
+                    "GoXLR {serial} is not connected (connected: {}): sync paused",
+                    if connected.is_empty() {
+                        "none"
+                    } else {
+                        &connected
+                    }
+                );
             } else if let Some(serial) = &status.missing_device {
                 log::info!("GoXLR {serial} is back");
             }
@@ -566,7 +643,9 @@ impl Engine {
         let secret = (self.inner.deps.get_secret)();
         if cfg.client_id.is_empty() || secret.is_empty() {
             self.update(|s| s.auth = Auth::NotConfigured);
-            return End::NeedsUser("Setup required: enter your Discord application in Settings".into());
+            return End::NeedsUser(
+                "Setup required: enter your Discord application in Settings".into(),
+            );
         }
         let weak = self.weak();
         let sink: EventSink = Rc::new(move |evt: &str, data: Value| {
@@ -585,7 +664,12 @@ impl Engine {
         ended
     }
 
-    async fn discord_session_on(&self, ipc: &dyn DiscordConnection, cfg: &Config, secret: &str) -> End {
+    async fn discord_session_on(
+        &self,
+        ipc: &dyn DiscordConnection,
+        cfg: &Config,
+        secret: &str,
+    ) -> End {
         let tokens = self.inner.deps.tokens.clone();
         let force = self.inner.force_refresh.replace(false);
         let token = match tokens.access_token(&cfg.client_id, secret, force).await {
@@ -622,7 +706,9 @@ impl Engine {
         self.update_discord_voice(&voice);
         match rpc.subscribe("VOICE_CHANNEL_SELECT").await {
             Ok(_) => {}
-            Err(RpcError::Rpc { message, .. }) => log::info!("Voice channel tracking unavailable: {message}"),
+            Err(RpcError::Rpc { message, .. }) => {
+                log::info!("Voice channel tracking unavailable: {message}")
+            }
             Err(e) => return End::Failed(e.to_string()),
         }
         self.refresh_voice_channel(ipc).await;
@@ -637,18 +723,29 @@ impl Engine {
         End::Failed(format!("closed: {}", ipc.wait_closed().await))
     }
 
-    async fn interactive_authorize(&self, ipc: &dyn DiscordConnection, cfg: &Config, secret: &str) -> Result<String, End> {
+    async fn interactive_authorize(
+        &self,
+        ipc: &dyn DiscordConnection,
+        cfg: &Config,
+        secret: &str,
+    ) -> Result<String, End> {
         let inner = &self.inner;
         if !inner.may_prompt.get() {
             self.update(|s| s.auth = Auth::Required);
-            return Err(End::NeedsUser("Discord authorization required: choose 'Authorize Discord' in the tray menu".into()));
+            return Err(End::NeedsUser(
+                "Discord authorization required: choose 'Authorize Discord' in the tray menu"
+                    .into(),
+            ));
         }
         inner.may_prompt.set(false);
         self.update(|s| {
             s.auth = Auth::Authorizing;
             s.detail = "Waiting for your approval in Discord".into();
         });
-        self.notify(&tr("Discord authorization", &[]), &tr("Approve GoXLR Discord Sync in the Discord window.", &[]));
+        self.notify(
+            &tr("Discord authorization", &[]),
+            &tr("Approve GoXLR Discord Sync in the Discord window.", &[]),
+        );
         let tokens = inner.deps.tokens.clone();
         let redirect = cfg.redirect_uri();
         // Not the user's answer: prompt again on the next attempt.
@@ -658,34 +755,66 @@ impl Engine {
             End::Failed(reason)
         };
         match Rpc(ipc).authorize(&cfg.client_id, &SCOPES).await {
-            Ok(code) => match tokens.exchange(&cfg.client_id, secret, &code, &[Some(redirect.clone()), None]).await {
+            Ok(code) => match tokens
+                .exchange(
+                    &cfg.client_id,
+                    secret,
+                    &code,
+                    &[Some(redirect.clone()), None],
+                )
+                .await
+            {
                 Ok(token) => return Ok(token),
                 Err(AuthError::Transient(e)) => return Err(retry_later(e)),
-                Err(AuthError::Refused(e)) => log::warn!("Code exchange failed ({e}), trying the browser"),
+                Err(AuthError::Refused(e)) => {
+                    log::warn!("Code exchange failed ({e}), trying the browser")
+                }
             },
             Err(RpcError::Closed(e) | RpcError::Unavailable(e)) => return Err(retry_later(e)),
             Err(RpcError::Timeout) => {
                 self.update(|s| s.auth = Auth::Required);
-                return Err(End::NeedsUser("The authorization request in Discord was not answered".into()));
+                return Err(End::NeedsUser(
+                    "The authorization request in Discord was not answered".into(),
+                ));
             }
             Err(RpcError::Rpc { message, .. }) => {
                 let text = message.to_lowercase();
-                if ["denied", "cancel", "reject"].iter().any(|w| text.contains(w)) {
+                if ["denied", "cancel", "reject"]
+                    .iter()
+                    .any(|w| text.contains(w))
+                {
                     self.update(|s| s.auth = Auth::Required);
-                    return Err(End::NeedsUser("Authorization declined in Discord. Use 'Authorize Discord' to try again.".into()));
+                    return Err(End::NeedsUser(
+                        "Authorization declined in Discord. Use 'Authorize Discord' to try again."
+                            .into(),
+                    ));
                 }
                 log::warn!("In-app authorization failed ({message}), trying the browser");
             }
         }
 
         self.update(|s| s.detail = "Waiting for authorization in your browser".into());
-        self.notify(&tr("Discord authorization", &[]), &tr("Approve GoXLR Discord Sync in your browser.", &[]));
+        self.notify(
+            &tr("Discord authorization", &[]),
+            &tr("Approve GoXLR Discord Sync in your browser.", &[]),
+        );
         inner.cancel_browser.send_replace(false);
-        let code = tokens.browser_authorize(&cfg.client_id, &redirect, cfg.oauth_port, inner.deps.timing.browser_timeout,
-                                            inner.cancel_browser.subscribe()).await;
+        let code = tokens
+            .browser_authorize(
+                &cfg.client_id,
+                &redirect,
+                cfg.oauth_port,
+                inner.deps.timing.browser_timeout,
+                inner.cancel_browser.subscribe(),
+            )
+            .await;
         inner.cancel_browser.send_replace(true);
         let result = match code {
-            Ok(code) => tokens.exchange(&cfg.client_id, secret, &code, &[Some(redirect)]).await,
+            Ok(code) => {
+                tokens
+                    .exchange(&cfg.client_id, secret, &code, &[Some(redirect)])
+                    .await
+            }
             Err(e) => Err(e),
         };
         match result {
@@ -724,7 +853,11 @@ impl Engine {
         };
         let mut label = None;
         if channel["id"].as_str().is_some() {
-            let name = channel["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Private call").to_string();
+            let name = channel["name"]
+                .as_str()
+                .filter(|n| !n.is_empty())
+                .unwrap_or("Private call")
+                .to_string();
             label = Some(name.clone());
             if let Some(guild_id) = channel["guild_id"].as_str() {
                 match rpc.get_guild(guild_id).await {
@@ -758,13 +891,20 @@ impl Engine {
         let result = match action {
             "toggle_mute" | "toggle_deafen" => {
                 let (prev_mute, prev_deaf) = (status.discord_mute, status.discord_deaf);
-                let args = if action == "toggle_mute" { json!({MUTE: prev_mute != Some(true)}) }
-                           else { json!({DEAF: prev_deaf != Some(true)}) };
+                let args = if action == "toggle_mute" {
+                    json!({MUTE: prev_mute != Some(true)})
+                } else {
+                    json!({DEAF: prev_deaf != Some(true)})
+                };
                 self.inner.action_in_flight.set(true);
                 let result = rpc.set_voice_settings(args.clone()).await;
                 self.inner.action_in_flight.set(false);
                 result.map(|answer| {
-                    let answer = if answer["mute"].is_boolean() || answer["deaf"].is_boolean() { answer } else { args };
+                    let answer = if answer["mute"].is_boolean() || answer["deaf"].is_boolean() {
+                        answer
+                    } else {
+                        args
+                    };
                     self.update_discord_voice(&answer);
                     // A user choice made on the GoXLR: handled once, whatever the message order.
                     self.after_voice_change(prev_mute, prev_deaf);
@@ -863,14 +1003,30 @@ impl Engine {
     }
 
     async fn reconcile(&self, mut fields: BTreeSet<&'static str>) {
-        for _ in 0..4 { // undeafen, then mute, plus a re-check after events during a set
+        for _ in 0..4 {
+            // undeafen, then mute, plus a re-check after events during a set
             let ipc = self.inner.ipc.borrow().clone();
             let status = self.status();
-            let Some(ipc) = ipc.filter(|_| status.discord_connected) else { return };
+            let Some(ipc) = ipc.filter(|_| status.discord_connected) else {
+                return;
+            };
             let cfg = self.config();
-            let want_mute = if cfg.cough_sync && fields.contains(MUTE) { status.goxlr_mute } else { None };
-            let want_deaf = if cfg.chat_sync && fields.contains(DEAF) { status.goxlr_deaf } else { None };
-            let Some(change) = plan_discord_update(want_mute, want_deaf, status.discord_mute, status.discord_deaf) else {
+            let want_mute = if cfg.cough_sync && fields.contains(MUTE) {
+                status.goxlr_mute
+            } else {
+                None
+            };
+            let want_deaf = if cfg.chat_sync && fields.contains(DEAF) {
+                status.goxlr_deaf
+            } else {
+                None
+            };
+            let Some(change) = plan_discord_update(
+                want_mute,
+                want_deaf,
+                status.discord_mute,
+                status.discord_deaf,
+            ) else {
                 self.inner.set_failures.set(0);
                 return;
             };
@@ -894,8 +1050,18 @@ impl Engine {
                 }
             };
             let latency = started.elapsed().as_secs_f64() * 1000.0;
-            self.update_discord_voice(if answer["mute"].is_boolean() || answer["deaf"].is_boolean() { &answer } else { &args });
-            log::info!("Discord {}={} ({latency:.0} ms)", change.field(), change.value());
+            self.update_discord_voice(
+                if answer["mute"].is_boolean() || answer["deaf"].is_boolean() {
+                    &answer
+                } else {
+                    &args
+                },
+            );
+            log::info!(
+                "Discord {}={} ({latency:.0} ms)",
+                change.field(),
+                change.value()
+            );
             self.update(|s| {
                 s.last_latency_ms = Some(latency);
                 s.detail = "Synchronised".into();
@@ -912,44 +1078,89 @@ impl Engine {
         let _guard = self.inner.push_lock.lock().await;
         let conn = self.inner.goxlr_conn.borrow().clone();
         let snap = self.inner.snapshot.borrow().clone();
-        let (Some(conn), Some(snap)) = (conn, snap) else { return };
+        let (Some(conn), Some(snap)) = (conn, snap) else {
+            return;
+        };
         if !conn.connected() {
             return;
         }
         let (st, cfg) = (self.status(), self.config());
         let result = async {
-            if push_deaf && cfg.chat_sync && st.discord_deaf.is_some() && st.goxlr_deaf.is_some() && st.discord_deaf != st.goxlr_deaf {
+            if push_deaf
+                && cfg.chat_sync
+                && st.discord_deaf.is_some()
+                && st.goxlr_deaf.is_some()
+                && st.discord_deaf != st.goxlr_deaf
+            {
                 if let Some(fader) = snap.deafen_fader.clone() {
-                    self.push_state(&*conn, &snap.serial, "fader", st.discord_deaf == Some(true), snap.deafen_state.as_deref(),
-                                    snap.deafen_mute_type.as_deref(), &cfg.deafen_triggers,
-                                    |state| json!({"SetFaderMuteState": [fader, state]})).await?;
+                    self.push_state(
+                        &*conn,
+                        &snap.serial,
+                        "fader",
+                        st.discord_deaf == Some(true),
+                        snap.deafen_state.as_deref(),
+                        snap.deafen_mute_type.as_deref(),
+                        &cfg.deafen_triggers,
+                        |state| json!({"SetFaderMuteState": [fader, state]}),
+                    )
+                    .await?;
                 }
             }
-            if push_mute && cfg.cough_sync && st.discord_deaf != Some(true) && st.discord_mute.is_some()
-                && st.goxlr_mute.is_some() && st.discord_mute != st.goxlr_mute {
-                self.push_state(&*conn, &snap.serial, "cough", st.discord_mute == Some(true), snap.cough_state.as_deref(),
-                                snap.cough_mute_type.as_deref(), &cfg.mute_triggers,
-                                |state| json!({"SetCoughMuteState": state})).await?;
+            if push_mute
+                && cfg.cough_sync
+                && st.discord_deaf != Some(true)
+                && st.discord_mute.is_some()
+                && st.goxlr_mute.is_some()
+                && st.discord_mute != st.goxlr_mute
+            {
+                self.push_state(
+                    &*conn,
+                    &snap.serial,
+                    "cough",
+                    st.discord_mute == Some(true),
+                    snap.cough_state.as_deref(),
+                    snap.cough_mute_type.as_deref(),
+                    &cfg.mute_triggers,
+                    |state| json!({"SetCoughMuteState": state}),
+                )
+                .await?;
             }
             Ok::<(), String>(())
-        }.await;
+        }
+        .await;
         if let Err(e) = result {
             log::warn!("Could not update the GoXLR: {e}");
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn push_state(&self, conn: &dyn GoxlrConnection, serial: &str, key: &'static str, muted: bool,
-                        current: Option<&str>, mute_type: Option<&str>, triggers: &[String],
-                        command: impl Fn(&str) -> Value) -> Result<(), String> {
+    async fn push_state(
+        &self,
+        conn: &dyn GoxlrConnection,
+        serial: &str,
+        key: &'static str,
+        muted: bool,
+        current: Option<&str>,
+        mute_type: Option<&str>,
+        triggers: &[String],
+        command: impl Fn(&str) -> Value,
+    ) -> Result<(), String> {
         let target = if muted {
             let Some(target) = goxlr_state_for(true, mute_type, triggers) else {
-                log::info!("No GoXLR mute state matches the Discord change with the current settings");
+                log::info!(
+                    "No GoXLR mute state matches the Discord change with the current settings"
+                );
                 return Ok(());
             };
             // Remember a mute that was not synced (e.g. Muted to Stream) to restore it later.
-            let restore = current.filter(|c| *c != "Unmuted").unwrap_or("Unmuted").to_string();
-            self.inner.pushed.borrow_mut().insert(key, (target.to_string(), restore));
+            let restore = current
+                .filter(|c| *c != "Unmuted")
+                .unwrap_or("Unmuted")
+                .to_string();
+            self.inner
+                .pushed
+                .borrow_mut()
+                .insert(key, (target.to_string(), restore));
             target.to_string()
         } else {
             let pushed = self.inner.pushed.borrow_mut().remove(key);
@@ -958,7 +1169,10 @@ impl Engine {
                 _ => "Unmuted".to_string(),
             }
         };
-        log::info!("Discord {} changed: setting {key} to {target}", if key == "fader" { "deafen" } else { "mute" });
+        log::info!(
+            "Discord {} changed: setting {key} to {target}",
+            if key == "fader" { "deafen" } else { "mute" }
+        );
         conn.send_command(serial, command(&target)).await
     }
 
@@ -984,24 +1198,58 @@ impl Engine {
         if st.serial.is_none() {
             return tr("No GoXLR connected", &[]);
         }
-        let mic = if st.discord_mute == Some(true) { tr("Mic muted", &[]) } else { tr("Mic live", &[]) };
-        let audio = if st.discord_deaf == Some(true) { tr("deafened", &[]) } else { tr("hearing", &[]) };
-        let place = st.voice_channel.map(|c| format!(" - {c}")).unwrap_or_default();
+        let mic = if st.discord_mute == Some(true) {
+            tr("Mic muted", &[])
+        } else {
+            tr("Mic live", &[])
+        };
+        let audio = if st.discord_deaf == Some(true) {
+            tr("deafened", &[])
+        } else {
+            tr("hearing", &[])
+        };
+        let place = st
+            .voice_channel
+            .map(|c| format!(" - {c}"))
+            .unwrap_or_default();
         format!("{mic}, {audio}{place}")
     }
 
     pub fn icon_spec(&self) -> IconSpec {
         let st = self.status();
-        if matches!(st.auth, Auth::NotConfigured | Auth::Required | Auth::Authorizing) {
-            return IconSpec { color: IconColor::Idle, glyph: Glyph::Mic, slashed: false };
+        if matches!(
+            st.auth,
+            Auth::NotConfigured | Auth::Required | Auth::Authorizing
+        ) {
+            return IconSpec {
+                color: IconColor::Idle,
+                glyph: Glyph::Mic,
+                slashed: false,
+            };
         }
-        let (mute, deaf) = if st.discord_connected { (st.discord_mute, st.discord_deaf) } else { (st.goxlr_mute, st.goxlr_deaf) };
-        let mut spec = if deaf == Some(true) {
-            IconSpec { color: IconColor::Muted, glyph: Glyph::Headphones, slashed: true }
-        } else if mute == Some(true) {
-            IconSpec { color: IconColor::Muted, glyph: Glyph::Mic, slashed: true }
+        let (mute, deaf) = if st.discord_connected {
+            (st.discord_mute, st.discord_deaf)
         } else {
-            IconSpec { color: IconColor::Live, glyph: Glyph::Mic, slashed: false }
+            (st.goxlr_mute, st.goxlr_deaf)
+        };
+        let mut spec = if deaf == Some(true) {
+            IconSpec {
+                color: IconColor::Muted,
+                glyph: Glyph::Headphones,
+                slashed: true,
+            }
+        } else if mute == Some(true) {
+            IconSpec {
+                color: IconColor::Muted,
+                glyph: Glyph::Mic,
+                slashed: true,
+            }
+        } else {
+            IconSpec {
+                color: IconColor::Live,
+                glyph: Glyph::Mic,
+                slashed: false,
+            }
         };
         if !(st.discord_connected && st.goxlr_connected) || st.serial.is_none() {
             spec.color = IconColor::Warning;
@@ -1014,20 +1262,44 @@ impl Engine {
         let goxlr = if let (true, Some(serial)) = (st.goxlr_connected, &st.serial) {
             tr("connected ({serial})", &[("serial", serial)])
         } else if let Some(serial) = &st.missing_device {
-            tr("connected, but GoXLR {serial} is not plugged in", &[("serial", serial)])
+            tr(
+                "connected, but GoXLR {serial} is not plugged in",
+                &[("serial", serial)],
+            )
         } else if st.goxlr_connected {
             tr("connected, no device", &[])
         } else {
             tr("not available", &[])
         };
-        let discord = if st.discord_connected { tr("connected", &[]) } else { self.summary() };
-        let mut lines = vec![tr("GoXLR Utility: {state}", &[("state", &goxlr)]), tr("Discord: {state}", &[("state", &discord)])];
+        let discord = if st.discord_connected {
+            tr("connected", &[])
+        } else {
+            self.summary()
+        };
+        let mut lines = vec![
+            tr("GoXLR Utility: {state}", &[("state", &goxlr)]),
+            tr("Discord: {state}", &[("state", &discord)]),
+        ];
         if st.discord_connected {
-            let mic = if st.discord_mute == Some(true) { tr("muted", &[]) } else { tr("live", &[]) };
-            let audio = if st.discord_deaf == Some(true) { tr("deafened", &[]) } else { tr("hearing", &[]) };
-            lines.push(tr("Mic: {mic} · Audio: {audio}", &[("mic", &mic), ("audio", &audio)]));
+            let mic = if st.discord_mute == Some(true) {
+                tr("muted", &[])
+            } else {
+                tr("live", &[])
+            };
+            let audio = if st.discord_deaf == Some(true) {
+                tr("deafened", &[])
+            } else {
+                tr("hearing", &[])
+            };
+            lines.push(tr(
+                "Mic: {mic} · Audio: {audio}",
+                &[("mic", &mic), ("audio", &audio)],
+            ));
             let none = tr("none", &[]);
-            lines.push(tr("Voice channel: {channel}", &[("channel", st.voice_channel.as_deref().unwrap_or(&none))]));
+            lines.push(tr(
+                "Voice channel: {channel}",
+                &[("channel", st.voice_channel.as_deref().unwrap_or(&none))],
+            ));
         }
         let cfg = self.config();
         if st.goxlr_connected && cfg.chat_sync {
@@ -1035,7 +1307,10 @@ impl Engine {
                 Some(fader) => tr("fader {fader}", &[("fader", fader)]),
                 None => tr("not on a fader", &[]),
             };
-            lines.push(tr("{channel} channel: {where}", &[("channel", &cfg.deafen_channel), ("where", &place)]));
+            lines.push(tr(
+                "{channel} channel: {where}",
+                &[("channel", &cfg.deafen_channel), ("where", &place)],
+            ));
         }
         if let Some(ms) = st.last_latency_ms {
             lines.push(tr("Last sync: {ms} ms", &[("ms", &format!("{ms:.0}"))]));

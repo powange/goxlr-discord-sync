@@ -34,5 +34,6 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Rust prototype
+# Rust
 /target/
+/src-tauri/gen/

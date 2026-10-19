@@ -33,7 +33,10 @@ impl std::fmt::Display for AuthError {
 }
 
 pub fn now() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 pub fn token_is_fresh(token: Option<&Value>, now: f64) -> bool {
@@ -42,7 +45,9 @@ pub fn token_is_fresh(token: Option<&Value>, now: f64) -> bool {
         return false;
     }
     // Tokens saved by version 1.x have no expiry: refresh them.
-    token["expires_at"].as_f64().is_some_and(|exp| exp - REFRESH_MARGIN > now)
+    token["expires_at"]
+        .as_f64()
+        .is_some_and(|exp| exp - REFRESH_MARGIN > now)
 }
 
 /// Where tokens are kept (the app uses the system credential store).
@@ -55,14 +60,30 @@ pub trait TokenStore {
 #[async_trait(?Send)]
 pub trait TokenService {
     /// A usable access token, None when the user has to authorize, Err(Transient) when offline.
-    async fn access_token(&self, client_id: &str, secret: &str, force_refresh: bool) -> Result<Option<String>, AuthError>;
+    async fn access_token(
+        &self,
+        client_id: &str,
+        secret: &str,
+        force_refresh: bool,
+    ) -> Result<Option<String>, AuthError>;
     /// Exchange an authorization code, trying each redirect URI in turn.
-    async fn exchange(&self, client_id: &str, secret: &str, code: &str, redirect_uris: &[Option<String>])
-        -> Result<String, AuthError>;
+    async fn exchange(
+        &self,
+        client_id: &str,
+        secret: &str,
+        code: &str,
+        redirect_uris: &[Option<String>],
+    ) -> Result<String, AuthError>;
     fn clear(&self);
     /// Browser fallback: returns the authorization code.
-    async fn browser_authorize(&self, client_id: &str, redirect_uri: &str, port: u16, timeout: Duration,
-                               cancel: watch::Receiver<bool>) -> Result<String, AuthError>;
+    async fn browser_authorize(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        port: u16,
+        timeout: Duration,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<String, AuthError>;
 }
 
 pub struct DiscordTokens {
@@ -79,79 +100,161 @@ impl DiscordTokens {
     }
 
     pub fn with_api(store: Rc<dyn TokenStore>, open_url: Rc<dyn Fn(&str)>, api: &str) -> Self {
-        let http = reqwest::Client::builder().timeout(HTTP_TIMEOUT).build().expect("HTTP client");
-        DiscordTokens { store, api: api.to_string(), http, open_url }
+        let http = reqwest::Client::builder()
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            .expect("HTTP client");
+        DiscordTokens {
+            store,
+            api: api.to_string(),
+            http,
+            open_url,
+        }
     }
 
     async fn token_request(&self, form: &[(&str, &str)]) -> Result<Value, AuthError> {
-        let response = self.http.post(format!("{}/oauth2/token", self.api)).form(form).send().await
+        let response = self
+            .http
+            .post(format!("{}/oauth2/token", self.api))
+            .form(form)
+            .send()
+            .await
             .map_err(|e| AuthError::Transient(format!("Cannot reach Discord: {e}")))?;
         let status = response.status().as_u16();
         if status == 429 || status >= 500 {
-            return Err(AuthError::Transient(format!("Discord answered HTTP {status}")));
+            return Err(AuthError::Transient(format!(
+                "Discord answered HTTP {status}"
+            )));
         }
         let mut body: Value = response.json().await.unwrap_or(Value::Null);
         if status != 200 || body["access_token"].as_str().is_none() {
-            let reason = body["error_description"].as_str().or(body["error"].as_str())
-                .map(str::to_string).unwrap_or_else(|| format!("HTTP {status}"));
-            return Err(AuthError::Refused(format!("Discord refused the token request: {reason}")));
+            let reason = body["error_description"]
+                .as_str()
+                .or(body["error"].as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("HTTP {status}"));
+            return Err(AuthError::Refused(format!(
+                "Discord refused the token request: {reason}"
+            )));
         }
         body["expires_at"] = json!(now() + body["expires_in"].as_f64().unwrap_or(0.0));
         Ok(body)
     }
 
-    pub async fn refresh(&self, client_id: &str, secret: &str, refresh: &str) -> Result<Value, AuthError> {
-        self.token_request(&[("client_id", client_id), ("client_secret", secret),
-                             ("grant_type", "refresh_token"), ("refresh_token", refresh)]).await
+    pub async fn refresh(
+        &self,
+        client_id: &str,
+        secret: &str,
+        refresh: &str,
+    ) -> Result<Value, AuthError> {
+        self.token_request(&[
+            ("client_id", client_id),
+            ("client_secret", secret),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh),
+        ])
+        .await
     }
 
-    pub async fn exchange_code(&self, client_id: &str, secret: &str, code: &str, redirect_uri: Option<&str>)
-        -> Result<Value, AuthError> {
-        let mut form = vec![("client_id", client_id), ("client_secret", secret),
-                            ("grant_type", "authorization_code"), ("code", code)];
+    pub async fn exchange_code(
+        &self,
+        client_id: &str,
+        secret: &str,
+        code: &str,
+        redirect_uri: Option<&str>,
+    ) -> Result<Value, AuthError> {
+        let mut form = vec![
+            ("client_id", client_id),
+            ("client_secret", secret),
+            ("grant_type", "authorization_code"),
+            ("code", code),
+        ];
         if let Some(uri) = redirect_uri {
             form.push(("redirect_uri", uri));
         }
         self.token_request(&form).await
     }
 
-    /// Validate an application ID/secret pair without any user interaction.
     pub async fn check_credentials(&self, client_id: &str, secret: &str) -> (bool, String) {
-        let response = self.http.post(format!("{}/oauth2/token", self.api))
-            .basic_auth(client_id, Some(secret))
-            .form(&[("grant_type", "client_credentials"), ("scope", "identify")])
-            .send().await;
-        match response {
-            Err(e) => (false, tr("Cannot reach Discord ({error}). Check your internet connection.",
-                                 &[("error", &short_error(&e))])),
-            Ok(r) if r.status().as_u16() == 200 => (true, tr("The Client ID and Client Secret are valid.", &[])),
-            Ok(r) if r.status().as_u16() == 401 => {
-                (false, tr("Discord rejected this Client ID / Client Secret pair. Copy both values again.", &[]))
-            }
-            Ok(r) => (false, tr("Discord answered HTTP {status}. Try again in a moment.",
-                                &[("status", &r.status().as_u16().to_string())])),
+        check_credentials_at(&self.api, client_id, secret).await
+    }
+}
+
+/// Validate an application ID/secret pair without any user interaction (Send).
+pub async fn check_credentials_at(api: &str, client_id: &str, secret: &str) -> (bool, String) {
+    let http = reqwest::Client::builder()
+        .timeout(HTTP_TIMEOUT)
+        .build()
+        .expect("HTTP client");
+    let response = http
+        .post(format!("{api}/oauth2/token"))
+        .basic_auth(client_id, Some(secret))
+        .form(&[("grant_type", "client_credentials"), ("scope", "identify")])
+        .send()
+        .await;
+    match response {
+        Err(e) => (
+            false,
+            tr(
+                "Cannot reach Discord ({error}). Check your internet connection.",
+                &[("error", &short_error(&e))],
+            ),
+        ),
+        Ok(r) if r.status().as_u16() == 200 => {
+            (true, tr("The Client ID and Client Secret are valid.", &[]))
         }
+        Ok(r) if r.status().as_u16() == 401 => (
+            false,
+            tr(
+                "Discord rejected this Client ID / Client Secret pair. Copy both values again.",
+                &[],
+            ),
+        ),
+        Ok(r) => (
+            false,
+            tr(
+                "Discord answered HTTP {status}. Try again in a moment.",
+                &[("status", &r.status().as_u16().to_string())],
+            ),
+        ),
     }
 }
 
 fn short_error(e: &reqwest::Error) -> String {
-    if e.is_timeout() { "timeout".into() } else if e.is_connect() { "connection".into() } else { "request".into() }
+    if e.is_timeout() {
+        "timeout".into()
+    } else if e.is_connect() {
+        "connection".into()
+    } else {
+        "request".into()
+    }
 }
 
 #[async_trait(?Send)]
 impl TokenService for DiscordTokens {
-    async fn access_token(&self, client_id: &str, secret: &str, force_refresh: bool) -> Result<Option<String>, AuthError> {
+    async fn access_token(
+        &self,
+        client_id: &str,
+        secret: &str,
+        force_refresh: bool,
+    ) -> Result<Option<String>, AuthError> {
         let token = self.store.get_token();
         if !force_refresh && token_is_fresh(token.as_ref(), now()) {
             return Ok(token.and_then(|t| t["access_token"].as_str().map(str::to_string)));
         }
-        let Some(refresh) = token.as_ref().and_then(|t| t["refresh_token"].as_str()).filter(|r| !r.is_empty()) else {
+        let Some(refresh) = token
+            .as_ref()
+            .and_then(|t| t["refresh_token"].as_str())
+            .filter(|r| !r.is_empty())
+        else {
             return Ok(None);
         };
         match self.refresh(client_id, secret, refresh).await {
             Ok(new_token) => {
                 let access = new_token["access_token"].as_str().map(str::to_string);
-                self.store.set_token(Some(new_token)).map_err(|e| AuthError::Transient(e.to_string()))?;
+                self.store
+                    .set_token(Some(new_token))
+                    .map_err(|e| AuthError::Transient(e.to_string()))?;
                 log::info!("Discord token refreshed");
                 Ok(access)
             }
@@ -164,14 +267,27 @@ impl TokenService for DiscordTokens {
         }
     }
 
-    async fn exchange(&self, client_id: &str, secret: &str, code: &str, redirect_uris: &[Option<String>])
-        -> Result<String, AuthError> {
+    async fn exchange(
+        &self,
+        client_id: &str,
+        secret: &str,
+        code: &str,
+        redirect_uris: &[Option<String>],
+    ) -> Result<String, AuthError> {
         let mut last = AuthError::Refused("No redirect URI to try".into());
         for uri in redirect_uris {
-            match self.exchange_code(client_id, secret, code, uri.as_deref()).await {
+            match self
+                .exchange_code(client_id, secret, code, uri.as_deref())
+                .await
+            {
                 Ok(token) => {
-                    let access = token["access_token"].as_str().unwrap_or_default().to_string();
-                    self.store.set_token(Some(token)).map_err(|e| AuthError::Transient(e.to_string()))?;
+                    let access = token["access_token"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string();
+                    self.store
+                        .set_token(Some(token))
+                        .map_err(|e| AuthError::Transient(e.to_string()))?;
                     return Ok(access);
                 }
                 Err(e @ AuthError::Transient(_)) => return Err(e),
@@ -187,9 +303,23 @@ impl TokenService for DiscordTokens {
         }
     }
 
-    async fn browser_authorize(&self, client_id: &str, redirect_uri: &str, port: u16, timeout: Duration,
-                               cancel: watch::Receiver<bool>) -> Result<String, AuthError> {
-        browser_authorize(client_id, redirect_uri, port, timeout, cancel, &*self.open_url).await
+    async fn browser_authorize(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        port: u16,
+        timeout: Duration,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<String, AuthError> {
+        browser_authorize(
+            client_id,
+            redirect_uri,
+            port,
+            timeout,
+            cancel,
+            &*self.open_url,
+        )
+        .await
     }
 }
 
@@ -207,16 +337,28 @@ fn page(status: &str, title: &str, text: &str) -> Vec<u8> {
 }
 
 /// Browser OAuth flow with a one-shot local callback server. Returns the code.
-pub async fn browser_authorize(client_id: &str, redirect_uri: &str, port: u16, timeout: Duration,
-                               mut cancel: watch::Receiver<bool>, open_url: &dyn Fn(&str)) -> Result<String, AuthError> {
-    let listener = TcpListener::bind(("127.0.0.1", port)).await
-        .map_err(|_| AuthError::Refused(format!("Port {port} is already in use, cannot receive the Discord callback")))?;
+pub async fn browser_authorize(
+    client_id: &str,
+    redirect_uri: &str,
+    port: u16,
+    timeout: Duration,
+    mut cancel: watch::Receiver<bool>,
+    open_url: &dyn Fn(&str),
+) -> Result<String, AuthError> {
+    let listener = TcpListener::bind(("127.0.0.1", port)).await.map_err(|_| {
+        AuthError::Refused(format!(
+            "Port {port} is already in use, cannot receive the Discord callback"
+        ))
+    })?;
     let state = random_state();
     let mut url = url::Url::parse("https://discord.com/oauth2/authorize").unwrap();
     url.query_pairs_mut()
-        .append_pair("client_id", client_id).append_pair("redirect_uri", redirect_uri)
-        .append_pair("response_type", "code").append_pair("scope", &SCOPES.join(" "))
-        .append_pair("state", &state).append_pair("prompt", "consent");
+        .append_pair("client_id", client_id)
+        .append_pair("redirect_uri", redirect_uri)
+        .append_pair("response_type", "code")
+        .append_pair("scope", &SCOPES.join(" "))
+        .append_pair("state", &state)
+        .append_pair("prompt", "consent");
     log::info!("Opening the browser for Discord authorization");
     open_url(url.as_str());
     let deadline = Instant::now() + timeout;
@@ -229,7 +371,9 @@ pub async fn browser_authorize(client_id: &str, redirect_uri: &str, port: u16, t
             }
             _ = cancel.wait_for(|c| *c) => return Err(AuthError::Refused("Authorization cancelled".into())),
         };
-        let Ok((mut socket, _)) = accepted else { continue };
+        let Ok((mut socket, _)) = accepted else {
+            continue;
+        };
         let mut buf = vec![0u8; 8192];
         // An idle browser preconnect must not block the wait.
         let n = match tokio::time::timeout(Duration::from_secs(5), socket.read(&mut buf)).await {
@@ -238,28 +382,61 @@ pub async fn browser_authorize(client_id: &str, redirect_uri: &str, port: u16, t
         };
         let request = String::from_utf8_lossy(&buf[..n]);
         let target = request.split_whitespace().nth(1).unwrap_or("/");
-        let Ok(parsed) = url::Url::parse(&format!("http://127.0.0.1{target}")) else { continue };
+        let Ok(parsed) = url::Url::parse(&format!("http://127.0.0.1{target}")) else {
+            continue;
+        };
         if parsed.path() != "/callback" {
-            let _ = socket.write_all(&page("404 Not Found", "Not found", "")).await;
+            let _ = socket
+                .write_all(&page("404 Not Found", "Not found", ""))
+                .await;
             continue;
         }
-        let param = |name: &str| parsed.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
+        let param = |name: &str| {
+            parsed
+                .query_pairs()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.into_owned())
+        };
         if param("state").as_deref() != Some(state.as_str()) {
-            let _ = socket.write_all(&page("400 Bad Request", "Invalid request",
-                "This authorization link is not the one GoXLR Discord Sync opened.")).await;
+            let _ = socket
+                .write_all(&page(
+                    "400 Bad Request",
+                    "Invalid request",
+                    "This authorization link is not the one GoXLR Discord Sync opened.",
+                ))
+                .await;
             continue;
         }
         if let Some(error) = param("error") {
-            let _ = socket.write_all(&page("200 OK", "Authorization cancelled", "You can close this window.")).await;
+            let _ = socket
+                .write_all(&page(
+                    "200 OK",
+                    "Authorization cancelled",
+                    "You can close this window.",
+                ))
+                .await;
             let reason = param("error_description").unwrap_or(error);
-            return Err(AuthError::Refused(format!("Authorization denied: {reason}")));
+            return Err(AuthError::Refused(format!(
+                "Authorization denied: {reason}"
+            )));
         }
         if let Some(code) = param("code") {
-            let _ = socket.write_all(&page("200 OK", "Authorization successful",
-                "You can close this window and return to GoXLR Discord Sync.")).await;
+            let _ = socket
+                .write_all(&page(
+                    "200 OK",
+                    "Authorization successful",
+                    "You can close this window and return to GoXLR Discord Sync.",
+                ))
+                .await;
             return Ok(code);
         }
-        let _ = socket.write_all(&page("400 Bad Request", "Invalid request", "No authorization code received.")).await;
+        let _ = socket
+            .write_all(&page(
+                "400 Bad Request",
+                "Invalid request",
+                "No authorization code received.",
+            ))
+            .await;
     }
 }
 
@@ -291,7 +468,8 @@ mod tests {
                 let (mut s, _) = listener.accept().await.unwrap();
                 let mut buf = vec![0u8; 16384];
                 let n = s.read(&mut buf).await.unwrap();
-                log.borrow_mut().push(String::from_utf8_lossy(&buf[..n]).to_string());
+                log.borrow_mut()
+                    .push(String::from_utf8_lossy(&buf[..n]).to_string());
                 let text = body.to_string();
                 let reply = format!("HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len());
                 s.write_all(reply.as_bytes()).await.unwrap();
@@ -311,8 +489,14 @@ mod tests {
     #[test]
     fn freshness() {
         let now = 1000.0;
-        assert!(token_is_fresh(Some(&json!({"access_token": "a", "expires_at": now + 3600.0})), now));
-        assert!(!token_is_fresh(Some(&json!({"access_token": "a", "expires_at": now + 60.0})), now));
+        assert!(token_is_fresh(
+            Some(&json!({"access_token": "a", "expires_at": now + 3600.0})),
+            now
+        ));
+        assert!(!token_is_fresh(
+            Some(&json!({"access_token": "a", "expires_at": now + 60.0})),
+            now
+        ));
         assert!(!token_is_fresh(Some(&json!({"access_token": "a"})), now)); // version 1.x
         assert!(!token_is_fresh(None, now));
     }
@@ -320,61 +504,113 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn fresh_token_is_reused_without_http() {
         local(async {
-            let store = Rc::new(MemoryStore(RefCell::new(Some(json!({"access_token": "a", "refresh_token": "r",
-                "expires_at": now() + 3600.0})))));
+            let store = Rc::new(MemoryStore(RefCell::new(Some(
+                json!({"access_token": "a", "refresh_token": "r",
+                "expires_at": now() + 3600.0}),
+            ))));
             let t = tokens(store, &closed_api()); // any HTTP call would fail
-            assert_eq!(t.access_token("id", "s", false).await.unwrap().as_deref(), Some("a"));
-        }).await;
+            assert_eq!(
+                t.access_token("id", "s", false).await.unwrap().as_deref(),
+                Some("a")
+            );
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn expired_token_is_refreshed_and_saved() {
         local(async {
-            let (api, seen) = fake_api(vec![(200, json!({"access_token": "b", "refresh_token": "r2", "expires_in": 604800}))]).await;
-            let store = Rc::new(MemoryStore(RefCell::new(Some(json!({"access_token": "a", "refresh_token": "r", "expires_at": 0})))));
+            let (api, seen) = fake_api(vec![(
+                200,
+                json!({"access_token": "b", "refresh_token": "r2", "expires_in": 604800}),
+            )])
+            .await;
+            let store = Rc::new(MemoryStore(RefCell::new(Some(
+                json!({"access_token": "a", "refresh_token": "r", "expires_at": 0}),
+            ))));
             let t = tokens(store.clone(), &api);
-            assert_eq!(t.access_token("id", "s", false).await.unwrap().as_deref(), Some("b"));
+            assert_eq!(
+                t.access_token("id", "s", false).await.unwrap().as_deref(),
+                Some("b")
+            );
             let saved = store.get_token().unwrap();
             assert_eq!(saved["refresh_token"], "r2");
             assert!(saved["expires_at"].as_f64().unwrap() > now() + 600000.0);
             assert!(seen.borrow()[0].contains("grant_type=refresh_token"));
-        }).await;
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn refused_refresh_clears_and_server_error_keeps() {
         local(async {
-            let (api, _) = fake_api(vec![(400, json!({"error": "invalid_grant"})), (500, json!({}))]).await;
-            let store = Rc::new(MemoryStore(RefCell::new(Some(json!({"access_token": "a", "refresh_token": "r", "expires_at": 0})))));
+            let (api, _) = fake_api(vec![
+                (400, json!({"error": "invalid_grant"})),
+                (500, json!({})),
+            ])
+            .await;
+            let store = Rc::new(MemoryStore(RefCell::new(Some(
+                json!({"access_token": "a", "refresh_token": "r", "expires_at": 0}),
+            ))));
             let t = tokens(store.clone(), &api);
             assert_eq!(t.access_token("id", "s", false).await.unwrap(), None);
             assert!(store.get_token().is_none());
-            store.set_token(Some(json!({"access_token": "a", "refresh_token": "r", "expires_at": 0}))).unwrap();
-            assert!(matches!(t.access_token("id", "s", false).await, Err(AuthError::Transient(_))));
+            store
+                .set_token(Some(
+                    json!({"access_token": "a", "refresh_token": "r", "expires_at": 0}),
+                ))
+                .unwrap();
+            assert!(matches!(
+                t.access_token("id", "s", false).await,
+                Err(AuthError::Transient(_))
+            ));
             assert!(store.get_token().is_some());
             let offline = tokens(store.clone(), &closed_api());
-            assert!(matches!(offline.access_token("id", "s", false).await, Err(AuthError::Transient(_))));
-        }).await;
+            assert!(matches!(
+                offline.access_token("id", "s", false).await,
+                Err(AuthError::Transient(_))
+            ));
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn exchange_tries_redirect_uris_in_order() {
         local(async {
-            let (api, seen) = fake_api(vec![(400, json!({"error": "invalid_grant", "error_description": "redirect_uri mismatch"})),
-                                            (200, json!({"access_token": "t", "expires_in": 10}))]).await;
+            let (api, seen) = fake_api(vec![
+                (
+                    400,
+                    json!({"error": "invalid_grant", "error_description": "redirect_uri mismatch"}),
+                ),
+                (200, json!({"access_token": "t", "expires_in": 10})),
+            ])
+            .await;
             let store = Rc::new(MemoryStore::default());
             let t = tokens(store.clone(), &api);
-            let got = t.exchange("id", "s", "c", &[Some("http://x".into()), None]).await.unwrap();
+            let got = t
+                .exchange("id", "s", "c", &[Some("http://x".into()), None])
+                .await
+                .unwrap();
             assert_eq!(got, "t");
             assert!(seen.borrow()[0].contains("redirect_uri=http"));
             assert!(!seen.borrow()[1].contains("redirect_uri"));
             assert_eq!(store.get_token().unwrap()["access_token"], "t");
-        }).await;
+        })
+        .await;
     }
 
-    async fn simulate_browser(port_holder: Rc<RefCell<u16>>, queries: Vec<&'static str>) -> impl Fn(&str) {
+    async fn simulate_browser(
+        port_holder: Rc<RefCell<u16>>,
+        queries: Vec<&'static str>,
+    ) -> impl Fn(&str) {
         move |url: &str| {
-            let state = url::Url::parse(url).unwrap().query_pairs().find(|(k, _)| k == "state").unwrap().1.into_owned();
+            let state = url::Url::parse(url)
+                .unwrap()
+                .query_pairs()
+                .find(|(k, _)| k == "state")
+                .unwrap()
+                .1
+                .into_owned();
             let port = *port_holder.borrow();
             let queries: Vec<String> = queries.iter().map(|q| q.replace("STATE", &state)).collect();
             tokio::task::spawn_local(async move {
@@ -391,7 +627,11 @@ mod tests {
     }
 
     fn free_port() -> u16 {
-        std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -399,15 +639,33 @@ mod tests {
         local(async {
             let port = free_port();
             let (_tx, rx) = watch::channel(false);
-            let open = simulate_browser(Rc::new(RefCell::new(port)), vec!["code=forged&state=wrong", "code=good&state=STATE"]).await;
-            let code = browser_authorize("id", "http://x", port, Duration::from_secs(5), rx.clone(), &open).await;
+            let open = simulate_browser(
+                Rc::new(RefCell::new(port)),
+                vec!["code=forged&state=wrong", "code=good&state=STATE"],
+            )
+            .await;
+            let code = browser_authorize(
+                "id",
+                "http://x",
+                port,
+                Duration::from_secs(5),
+                rx.clone(),
+                &open,
+            )
+            .await;
             assert_eq!(code.unwrap(), "good");
 
             let port = free_port();
-            let open = simulate_browser(Rc::new(RefCell::new(port)), vec!["error=access_denied&state=STATE"]).await;
-            let denied = browser_authorize("id", "http://x", port, Duration::from_secs(5), rx, &open).await;
+            let open = simulate_browser(
+                Rc::new(RefCell::new(port)),
+                vec!["error=access_denied&state=STATE"],
+            )
+            .await;
+            let denied =
+                browser_authorize("id", "http://x", port, Duration::from_secs(5), rx, &open).await;
             assert!(matches!(denied, Err(AuthError::Refused(m)) if m.contains("denied")));
-        }).await;
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -415,15 +673,33 @@ mod tests {
         local(async {
             let (tx, rx) = watch::channel(false);
             let none = |_: &str| {};
-            let timeout = browser_authorize("id", "http://x", free_port(), Duration::from_millis(300), rx.clone(), &none).await;
+            let timeout = browser_authorize(
+                "id",
+                "http://x",
+                free_port(),
+                Duration::from_millis(300),
+                rx.clone(),
+                &none,
+            )
+            .await;
             assert!(matches!(timeout, Err(AuthError::Refused(m)) if m.contains("No answer")));
             tx.send(true).unwrap();
-            let cancelled = browser_authorize("id", "http://x", free_port(), Duration::from_secs(5), rx.clone(), &none).await;
+            let cancelled = browser_authorize(
+                "id",
+                "http://x",
+                free_port(),
+                Duration::from_secs(5),
+                rx.clone(),
+                &none,
+            )
+            .await;
             assert!(matches!(cancelled, Err(AuthError::Refused(m)) if m.contains("cancelled")));
             let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let port = busy.local_addr().unwrap().port();
-            let refused = browser_authorize("id", "http://x", port, Duration::from_secs(1), rx, &none).await;
+            let refused =
+                browser_authorize("id", "http://x", port, Duration::from_secs(1), rx, &none).await;
             assert!(matches!(refused, Err(AuthError::Refused(m)) if m.contains("already in use")));
-        }).await;
+        })
+        .await;
     }
 }

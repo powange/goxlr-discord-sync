@@ -35,7 +35,12 @@ impl SecretsFile {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Map::new()),
             Err(e) => return Err(e),
         };
-        decode(&blob).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Secrets file is unreadable: {e}")))
+        decode(&blob).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Secrets file is unreadable: {e}"),
+            )
+        })
     }
 
     pub fn load(&self) -> Map<String, Value> {
@@ -52,14 +57,24 @@ impl SecretsFile {
 
     fn locked<T>(&self, work: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
         std::fs::create_dir_all(&self.dir)?;
-        let lock = File::options().create(true).truncate(false).read(true).write(true).open(self.dir.join("secrets.lock"))?;
+        let lock = File::options()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(self.dir.join("secrets.lock"))?;
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             match lock.try_lock() {
                 Ok(()) => break,
-                Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
                 Err(std::fs::TryLockError::WouldBlock) => {
-                    return Err(io::Error::new(io::ErrorKind::TimedOut, "secrets.dat is locked by another process"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "secrets.dat is locked by another process",
+                    ));
                 }
                 Err(std::fs::TryLockError::Error(e)) => return Err(e),
             }
@@ -70,7 +85,11 @@ impl SecretsFile {
     }
 
     pub fn client_secret(&self) -> String {
-        self.load().get("client_secret").and_then(Value::as_str).unwrap_or_default().to_string()
+        self.load()
+            .get("client_secret")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
     }
 
     pub fn set_client_secret(&self, secret: &str) -> io::Result<()> {
@@ -137,33 +156,56 @@ fn decode(blob: &[u8]) -> Result<Map<String, Value>, String> {
 mod dpapi {
     use std::io;
     use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB};
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
+    };
 
     /// Same entropy and flags as goxlr_discord_sync/secure_store.py.
     const ENTROPY: &[u8] = b"goxlr-discord-sync";
     const CRYPTPROTECT_UI_FORBIDDEN: u32 = 1;
 
     fn blob(data: &mut [u8]) -> CRYPT_INTEGER_BLOB {
-        CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_mut_ptr() }
+        CRYPT_INTEGER_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_mut_ptr(),
+        }
     }
 
     fn call(protect: bool, data: &[u8]) -> io::Result<Vec<u8>> {
         let (mut input, mut entropy) = (data.to_vec(), ENTROPY.to_vec());
         let (data_in, entropy) = (blob(&mut input), blob(&mut entropy));
-        let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+        let mut out = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
         let ok = unsafe {
             if protect {
-                CryptProtectData(&data_in, std::ptr::null(), &entropy, std::ptr::null(), std::ptr::null(),
-                                 CRYPTPROTECT_UI_FORBIDDEN, &mut out)
+                CryptProtectData(
+                    &data_in,
+                    std::ptr::null(),
+                    &entropy,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    CRYPTPROTECT_UI_FORBIDDEN,
+                    &mut out,
+                )
             } else {
-                CryptUnprotectData(&data_in, std::ptr::null_mut(), &entropy, std::ptr::null(), std::ptr::null(),
-                                   CRYPTPROTECT_UI_FORBIDDEN, &mut out)
+                CryptUnprotectData(
+                    &data_in,
+                    std::ptr::null_mut(),
+                    &entropy,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    CRYPTPROTECT_UI_FORBIDDEN,
+                    &mut out,
+                )
             }
         };
         if ok == 0 {
             return Err(io::Error::last_os_error());
         }
-        let result = unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec() };
+        let result =
+            unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec() };
         unsafe { LocalFree(out.pbData as _) };
         Ok(result)
     }
@@ -182,11 +224,17 @@ mod dpapi {
     use std::io;
 
     pub fn protect(_: &[u8]) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "DPAPI is Windows only"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "DPAPI is Windows only",
+        ))
     }
 
     pub fn unprotect(_: &[u8]) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "DPAPI data can only be read on Windows"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "DPAPI data can only be read on Windows",
+        ))
     }
 }
 
@@ -210,7 +258,14 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(store.path()).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                std::fs::metadata(store.path())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
         }
     }
 
@@ -220,7 +275,11 @@ mod tests {
         let store = SecretsFile::new(dir.path().to_path_buf());
         if !cfg!(windows) {
             // Written by secure_store.save() of the Python version on Linux.
-            std::fs::write(store.path(), br#"PLAIN1{"client_secret": "py", "token": {"access_token": "a"}}"#).unwrap();
+            std::fs::write(
+                store.path(),
+                br#"PLAIN1{"client_secret": "py", "token": {"access_token": "a"}}"#,
+            )
+            .unwrap();
             assert_eq!(store.client_secret(), "py");
             assert_eq!(store.get_token().unwrap()["access_token"], "a");
         }
@@ -235,7 +294,12 @@ mod tests {
     fn lock_is_exclusive() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path()).unwrap();
-        let other = File::options().create(true).truncate(false).write(true).open(dir.path().join("secrets.lock")).unwrap();
+        let other = File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.path().join("secrets.lock"))
+            .unwrap();
         other.lock().unwrap(); // held by "another process"
         let store = SecretsFile::new(dir.path().to_path_buf());
         let started = Instant::now();

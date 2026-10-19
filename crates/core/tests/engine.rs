@@ -82,7 +82,10 @@ impl FakeIpc {
     }
     fn user_joins(&self, name: &str) {
         *self.channel.borrow_mut() = Some(json!({"id": "c1", "name": name, "guild_id": "g1"}));
-        (self.sink)("VOICE_CHANNEL_SELECT", json!({"channel_id": "c1", "guild_id": "g1"}));
+        (self.sink)(
+            "VOICE_CHANNEL_SELECT",
+            json!({"channel_id": "c1", "guild_id": "g1"}),
+        );
     }
     fn calls(&self) -> Vec<Value> {
         self.calls.borrow().clone()
@@ -105,7 +108,13 @@ impl FakeIpc {
 
 #[async_trait(?Send)]
 impl DiscordConnection for FakeIpc {
-    async fn command(&self, cmd: &str, args: Value, _evt: Option<&str>, _timeout: Duration) -> Result<Value, RpcError> {
+    async fn command(
+        &self,
+        cmd: &str,
+        args: Value,
+        _evt: Option<&str>,
+        _timeout: Duration,
+    ) -> Result<Value, RpcError> {
         if let Some(reason) = self.closed.borrow().clone() {
             return Err(RpcError::Closed(reason));
         }
@@ -113,26 +122,36 @@ impl DiscordConnection for FakeIpc {
             "AUTHORIZE" => {
                 self.authorized.set(true);
                 if self.behaviour.deny_authorize.get() {
-                    return Err(RpcError::Rpc { code: Some(5000),
-                        message: "OAuth2 Error: access_denied: The resource owner denied the request".into() });
+                    return Err(RpcError::Rpc {
+                        code: Some(5000),
+                        message:
+                            "OAuth2 Error: access_denied: The resource owner denied the request"
+                                .into(),
+                    });
                 }
                 Ok(json!({"code": "code"}))
             }
-            "AUTHENTICATE" if args["access_token"] != "good" => {
-                Err(RpcError::Rpc { code: Some(4009), message: "Invalid access token".into() })
-            }
+            "AUTHENTICATE" if args["access_token"] != "good" => Err(RpcError::Rpc {
+                code: Some(4009),
+                message: "Invalid access token".into(),
+            }),
             "GET_VOICE_SETTINGS" => Ok(self.voice.borrow().clone()),
             "GET_SELECTED_VOICE_CHANNEL" => Ok(self.channel.borrow().clone().unwrap_or(json!({}))),
             "GET_GUILD" => Ok(json!({"id": "g1", "name": "My Server"})),
             "SELECT_VOICE_CHANNEL" => {
-                self.calls.borrow_mut().push(json!({"select_voice_channel": args["channel_id"]}));
+                self.calls
+                    .borrow_mut()
+                    .push(json!({"select_voice_channel": args["channel_id"]}));
                 *self.channel.borrow_mut() = None;
                 (self.sink)("VOICE_CHANNEL_SELECT", json!({"channel_id": null}));
                 Ok(json!({}))
             }
             "SET_VOICE_SETTINGS" => {
                 if self.behaviour.fail_next_set.replace(false) {
-                    return Err(RpcError::Rpc { code: Some(1000), message: "transient".into() });
+                    return Err(RpcError::Rpc {
+                        code: Some(1000),
+                        message: "transient".into(),
+                    });
                 }
                 self.calls.borrow_mut().push(args.clone());
                 self.apply(&args);
@@ -154,7 +173,11 @@ impl DiscordConnection for FakeIpc {
 
     async fn wait_closed(&self) -> String {
         let mut rx = self.closed.subscribe();
-        let reason = rx.wait_for(|r| r.is_some()).await.map(|r| r.clone().unwrap()).unwrap_or_default();
+        let reason = rx
+            .wait_for(|r| r.is_some())
+            .await
+            .map(|r| r.clone().unwrap())
+            .unwrap_or_default();
         reason
     }
 
@@ -180,7 +203,11 @@ impl FakeDiscord {
 
 #[async_trait(?Send)]
 impl DiscordConnector for FakeDiscord {
-    async fn connect(&self, _client_id: &str, events: EventSink) -> Result<Rc<dyn DiscordConnection>, RpcError> {
+    async fn connect(
+        &self,
+        _client_id: &str,
+        events: EventSink,
+    ) -> Result<Rc<dyn DiscordConnection>, RpcError> {
         let ipc = Rc::new(FakeIpc {
             voice: RefCell::new(json!({"mute": false, "deaf": false})),
             self_mute: Cell::new(false),
@@ -211,11 +238,23 @@ impl FakeGoxlr {
         (self.sink)();
     }
     fn patch(&self, ops: Value) {
-        self.status.borrow_mut().as_mut().unwrap().apply_patch(&ops).unwrap();
+        self.status
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .apply_patch(&ops)
+            .unwrap();
         (self.sink)();
     }
     fn field(&self, path: &str) -> Value {
-        self.status.borrow().as_ref().unwrap().doc.pointer(path).cloned().unwrap_or(Value::Null)
+        self.status
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .doc
+            .pointer(path)
+            .cloned()
+            .unwrap_or(Value::Null)
     }
     fn commands(&self) -> Vec<(String, Value)> {
         self.commands.borrow().clone()
@@ -229,7 +268,9 @@ impl GoxlrConnection for FakeGoxlr {
         Err("stopped".into())
     }
     async fn send_command(&self, serial: &str, command: Value) -> Result<(), String> {
-        self.commands.borrow_mut().push((serial.to_string(), command.clone()));
+        self.commands
+            .borrow_mut()
+            .push((serial.to_string(), command.clone()));
         let (key, value) = command.as_object().unwrap().iter().next().unwrap();
         let ops = if key == "SetCoughMuteState" {
             json!([{"op": "replace", "path": format!("/mixers/{serial}/cough_button/state"), "value": value}])
@@ -261,8 +302,12 @@ impl FakeGoxlrs {
 
 impl GoxlrConnector for FakeGoxlrs {
     fn create(&self, _url: &str, updates: UpdateSink) -> Rc<dyn GoxlrConnection> {
-        let conn = Rc::new(FakeGoxlr { status: RefCell::default(), sink: updates, commands: RefCell::default(),
-                                       stop: watch::channel(false).0 });
+        let conn = Rc::new(FakeGoxlr {
+            status: RefCell::default(),
+            sink: updates,
+            commands: RefCell::default(),
+            stop: watch::channel(false).0,
+        });
         self.0.borrow_mut().push(conn.clone());
         conn
     }
@@ -279,8 +324,12 @@ struct FakeTokens {
 
 impl FakeTokens {
     fn new(token: Option<&str>) -> Rc<FakeTokens> {
-        Rc::new(FakeTokens { token: RefCell::new(token.map(str::to_string)), cleared: Cell::new(0),
-                             transient_errors: Cell::new(0), calls: Cell::new(0) })
+        Rc::new(FakeTokens {
+            token: RefCell::new(token.map(str::to_string)),
+            cleared: Cell::new(0),
+            transient_errors: Cell::new(0),
+            calls: Cell::new(0),
+        })
     }
 }
 
@@ -294,7 +343,13 @@ impl TokenService for FakeTokens {
         }
         Ok(self.token.borrow().clone())
     }
-    async fn exchange(&self, _: &str, _: &str, _: &str, _: &[Option<String>]) -> Result<String, AuthError> {
+    async fn exchange(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &[Option<String>],
+    ) -> Result<String, AuthError> {
         *self.token.borrow_mut() = Some("good".into());
         Ok("good".into())
     }
@@ -302,8 +357,14 @@ impl TokenService for FakeTokens {
         self.cleared.set(self.cleared.get() + 1);
         *self.token.borrow_mut() = None;
     }
-    async fn browser_authorize(&self, _: &str, _: &str, _: u16, _: Duration, _: watch::Receiver<bool>)
-        -> Result<String, AuthError> {
+    async fn browser_authorize(
+        &self,
+        _: &str,
+        _: &str,
+        _: u16,
+        _: Duration,
+        _: watch::Receiver<bool>,
+    ) -> Result<String, AuthError> {
         Err(AuthError::Refused("no browser in tests".into()))
     }
 }
@@ -318,7 +379,10 @@ struct World {
 }
 
 fn cfg() -> Config {
-    Config { client_id: "123".into(), ..Config::default() }
+    Config {
+        client_id: "123".into(),
+        ..Config::default()
+    }
 }
 
 fn world_with(config: Config, tokens: Rc<FakeTokens>, secret: &str) -> World {
@@ -327,23 +391,34 @@ fn world_with(config: Config, tokens: Rc<FakeTokens>, secret: &str) -> World {
     let notes: Rc<RefCell<Vec<String>>> = Rc::default();
     let sink = notes.clone();
     let secret = secret.to_string();
-    let engine = Engine::new(config, Deps {
-        tokens: tokens.clone(),
-        get_secret: Box::new(move || secret.clone()),
-        discord: discord.clone(),
-        goxlr: goxlrs.clone(),
-        hooks: Hooks { on_change: Box::new(|| {}), notify: Box::new(move |title, _| sink.borrow_mut().push(title.to_string())) },
-        timing: Timing {
-            retry_min: Duration::from_millis(50),
-            retry_max: Duration::from_millis(400),
-            // Shorter than retry_min: a loss is notified before the reconnection (as the Python test relied on).
-            loss_notify_delay: Duration::from_millis(20),
-            browser_timeout: Duration::from_secs(1),
+    let engine = Engine::new(
+        config,
+        Deps {
+            tokens: tokens.clone(),
+            get_secret: Box::new(move || secret.clone()),
+            discord: discord.clone(),
+            goxlr: goxlrs.clone(),
+            hooks: Hooks {
+                on_change: Box::new(|| {}),
+                notify: Box::new(move |title, _| sink.borrow_mut().push(title.to_string())),
+            },
+            timing: Timing {
+                retry_min: Duration::from_millis(50),
+                retry_max: Duration::from_millis(400),
+                // Shorter than retry_min: a loss is notified before the reconnection (as the Python test relied on).
+                loss_notify_delay: Duration::from_millis(20),
+                browser_timeout: Duration::from_secs(1),
+            },
         },
-    });
+    );
     let runner = engine.clone();
     tokio::task::spawn_local(async move { runner.run().await });
-    World { engine, discord, goxlrs, notes }
+    World {
+        engine,
+        discord,
+        goxlrs,
+        notes,
+    }
 }
 
 fn world(config: Config) -> World {
@@ -353,7 +428,10 @@ fn world(config: Config) -> World {
 async fn until(what: &str, condition: impl Fn() -> bool) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     while !condition() {
-        assert!(tokio::time::Instant::now() < deadline, "timed out waiting for {what}");
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
@@ -363,7 +441,10 @@ async fn sleep_ms(ms: u64) {
 }
 
 async fn connected(w: &World, doc: Value) -> (Rc<FakeIpc>, Rc<FakeGoxlr>) {
-    until("both connections", || w.goxlrs.count() > 0 && w.discord.count() > 0 && w.engine.status().discord_connected).await;
+    until("both connections", || {
+        w.goxlrs.count() > 0 && w.discord.count() > 0 && w.engine.status().discord_connected
+    })
+    .await;
     let goxlr = w.goxlrs.last();
     goxlr.push(doc);
     (w.discord.last(), goxlr)
@@ -411,7 +492,14 @@ local_test!(chat_fader_deafens_and_restores, async {
     until("undeaf", || !ipc.voice("deaf")).await;
     sleep_ms(50).await;
     // Never sent mute while deafened, mic still muted afterwards.
-    assert_eq!(ipc.calls(), vec![json!({"mute": true}), json!({"deaf": true}), json!({"deaf": false})]);
+    assert_eq!(
+        ipc.calls(),
+        vec![
+            json!({"mute": true}),
+            json!({"deaf": true}),
+            json!({"deaf": false})
+        ]
+    );
     assert!(ipc.voice("mute"));
 });
 
@@ -437,7 +525,10 @@ local_test!(fader_reassignment_is_followed, async {
 });
 
 local_test!(disabled_then_reenabled_resyncs, async {
-    let w = world(Config { cough_sync: false, ..cfg() });
+    let w = world(Config {
+        cough_sync: false,
+        ..cfg()
+    });
     let (ipc, goxlr) = connected(&w, status()).await;
     goxlr.patch(cough("MutedToAll"));
     sleep_ms(100).await;
@@ -449,7 +540,10 @@ local_test!(disabled_then_reenabled_resyncs, async {
 local_test!(unknown_cough_state_is_not_pushed, async {
     let w = world(cfg());
     let mut doc = status();
-    doc["mixers"]["S1"]["cough_button"].as_object_mut().unwrap().remove("state");
+    doc["mixers"]["S1"]["cough_button"]
+        .as_object_mut()
+        .unwrap()
+        .remove("state");
     let (ipc, _) = connected(&w, doc).await;
     ipc.user_changes(json!({"mute": true}));
     sleep_ms(100).await;
@@ -457,13 +551,24 @@ local_test!(unknown_cough_state_is_not_pushed, async {
 });
 
 local_test!(two_way_sync, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
     let (ipc, goxlr) = connected(&w, status()).await;
     sleep_ms(50).await;
     ipc.user_changes(json!({"mute": true}));
-    until("cough command", || goxlr.commands() == vec![("S1".into(), json!({"SetCoughMuteState": "MutedToX"}))]).await;
+    until("cough command", || {
+        goxlr.commands() == vec![("S1".into(), json!({"SetCoughMuteState": "MutedToX"}))]
+    })
+    .await;
     ipc.user_changes(json!({"deaf": true, "mute": true}));
-    until("fader command", || goxlr.commands().contains(&("S1".into(), json!({"SetFaderMuteState": ["B", "MutedToX"]})))).await;
+    until("fader command", || {
+        goxlr
+            .commands()
+            .contains(&("S1".into(), json!({"SetFaderMuteState": ["B", "MutedToX"]})))
+    })
+    .await;
     sleep_ms(100).await;
     assert!(ipc.calls().is_empty()); // nothing echoed back to Discord
     assert_eq!(w.engine.status().goxlr_deaf, Some(true));
@@ -471,7 +576,10 @@ local_test!(two_way_sync, async {
 
 local_test!(not_configured_waits_for_settings, async {
     let w = world(Config::default());
-    until("not configured", || w.engine.status().auth == Auth::NotConfigured).await;
+    until("not configured", || {
+        w.engine.status().auth == Auth::NotConfigured
+    })
+    .await;
     assert_eq!(w.engine.summary(), "Setup required");
     assert_eq!(w.engine.icon_spec().color, IconColor::Idle);
     w.engine.apply_config(cfg(), false);
@@ -522,11 +630,27 @@ local_test!(discord_restart_reconnects_and_notifies, async {
     ipc.close(); // Discord quits
     until("disconnected", || !w.engine.status().discord_connected).await;
     assert_eq!(w.engine.icon_spec().color, IconColor::Warning);
-    until("loss notice", || w.notes.borrow().contains(&"Discord disconnected".to_string())).await;
-    until("reconnected", || w.discord.count() >= 2 && w.engine.status().discord_connected).await;
+    until("loss notice", || {
+        w.notes
+            .borrow()
+            .contains(&"Discord disconnected".to_string())
+    })
+    .await;
+    until("reconnected", || {
+        w.discord.count() >= 2 && w.engine.status().discord_connected
+    })
+    .await;
     // The new Discord session starts unmuted: state is pushed again right away.
-    until("pushed again", || w.discord.last().calls() == vec![json!({"mute": true})]).await;
-    until("restore notice", || w.notes.borrow().contains(&"Discord reconnected".to_string())).await;
+    until("pushed again", || {
+        w.discord.last().calls() == vec![json!({"mute": true})]
+    })
+    .await;
+    until("restore notice", || {
+        w.notes
+            .borrow()
+            .contains(&"Discord reconnected".to_string())
+    })
+    .await;
 });
 
 local_test!(goxlr_restart_is_handled, async {
@@ -536,7 +660,9 @@ local_test!(goxlr_restart_is_handled, async {
     until("goxlr down", || !w.engine.status().goxlr_connected).await;
     assert_eq!(w.engine.summary(), "Waiting for GoXLR Utility");
     until("new session", || w.goxlrs.count() >= 2).await;
-    w.goxlrs.last().push(status_with(mixer("MutedToAll", "All")));
+    w.goxlrs
+        .last()
+        .push(status_with(mixer("MutedToAll", "All")));
     until("mute", || ipc.voice("mute")).await;
 });
 
@@ -550,7 +676,10 @@ local_test!(details_text, async {
 });
 
 local_test!(configured_goxlr_missing_pauses_sync, async {
-    let w = world(Config { mixer_serial: "S2".into(), ..cfg() });
+    let w = world(Config {
+        mixer_serial: "S2".into(),
+        ..cfg()
+    });
     let (ipc, goxlr) = connected(&w, status_with(mixer("MutedToAll", "All"))).await;
     sleep_ms(50).await;
     assert!(ipc.calls().is_empty()); // S1 is not the configured device
@@ -568,17 +697,26 @@ local_test!(voice_channel_in_tooltip_and_status, async {
     let (ipc, _) = connected(&w, status()).await;
     assert_eq!(w.engine.status().voice_channel, None);
     ipc.user_joins("General");
-    until("channel", || w.engine.status().voice_channel.as_deref() == Some("My Server › General")).await;
+    until("channel", || {
+        w.engine.status().voice_channel.as_deref() == Some("My Server › General")
+    })
+    .await;
     until("goxlr", || w.engine.status().goxlr_connected).await;
     assert!(w.engine.summary().ends_with(" - My Server › General"));
-    assert!(w.engine.details().contains("Voice channel: My Server › General"));
+    assert!(w
+        .engine
+        .details()
+        .contains("Voice channel: My Server › General"));
 });
 
 local_test!(goxlr_buttons_trigger_discord_actions, async {
     let mut actions = BTreeMap::new();
     actions.insert("toggle_deafen".to_string(), "SamplerClear".to_string());
     actions.insert("leave_voice".to_string(), "Bleep".to_string());
-    let w = world(Config { button_actions: actions, ..cfg() });
+    let w = world(Config {
+        button_actions: actions,
+        ..cfg()
+    });
     let mut doc = status();
     doc["mixers"]["S1"]["button_down"] = json!({"SamplerClear": false, "Bleep": false});
     let (ipc, goxlr) = connected(&w, doc).await;
@@ -593,19 +731,33 @@ local_test!(goxlr_buttons_trigger_discord_actions, async {
     press("SamplerClear", true);
     until("undeaf", || !ipc.voice("deaf")).await;
     press("Bleep", true);
-    until("leave", || ipc.calls().contains(&json!({"select_voice_channel": null}))).await;
+    until("leave", || {
+        ipc.calls().contains(&json!({"select_voice_channel": null}))
+    })
+    .await;
     until("no channel", || w.engine.status().voice_channel.is_none()).await;
 });
 
 local_test!(button_action_is_mirrored_with_two_way_sync, async {
     let mut actions = BTreeMap::new();
     actions.insert("toggle_mute".to_string(), "EffectFx".to_string());
-    let w = world(Config { bidirectional: true, button_actions: actions, ..cfg() });
+    let w = world(Config {
+        bidirectional: true,
+        button_actions: actions,
+        ..cfg()
+    });
     let mut doc = status();
     doc["mixers"]["S1"]["button_down"] = json!({"EffectFx": false});
     let (ipc, goxlr) = connected(&w, doc).await;
-    goxlr.patch(json!([{"op": "replace", "path": "/mixers/S1/button_down/EffectFx", "value": true}]));
-    until("cough command", || goxlr.commands().contains(&("S1".into(), json!({"SetCoughMuteState": "MutedToX"})))).await;
+    goxlr.patch(
+        json!([{"op": "replace", "path": "/mixers/S1/button_down/EffectFx", "value": true}]),
+    );
+    until("cough command", || {
+        goxlr
+            .commands()
+            .contains(&("S1".into(), json!({"SetCoughMuteState": "MutedToX"})))
+    })
+    .await;
     assert!(ipc.voice("mute"));
 });
 
@@ -616,7 +768,10 @@ fn cough_state(goxlr: &FakeGoxlr) -> Value {
 }
 
 local_test!(hot_mic_after_undeafen_in_discord_two_way, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
     let (ipc, goxlr) = connected(&w, status()).await;
     goxlr.patch(chat("MutedToX")); // deafen via Chat fader
     until("deaf", || ipc.voice("deaf")).await;
@@ -624,7 +779,11 @@ local_test!(hot_mic_after_undeafen_in_discord_two_way, async {
     sleep_ms(100).await;
     ipc.user_changes(json!({"deaf": false, "mute": false})); // undeafen in Discord; Discord restores mute=false
     sleep_ms(200).await;
-    assert_eq!(cough_state(&goxlr), "MutedToX", "cough mute was undone: hot mic");
+    assert_eq!(
+        cough_state(&goxlr),
+        "MutedToX",
+        "cough mute was undone: hot mic"
+    );
 });
 
 local_test!(hot_mic_after_undeafen_in_discord_one_way, async {
@@ -636,12 +795,21 @@ local_test!(hot_mic_after_undeafen_in_discord_one_way, async {
     sleep_ms(100).await;
     ipc.user_changes(json!({"deaf": false, "mute": false}));
     sleep_ms(200).await;
-    assert!(ipc.voice("mute"), "GoXLR cough is muted but Discord mic is live");
+    assert!(
+        ipc.voice("mute"),
+        "GoXLR cough is muted but Discord mic is live"
+    );
 });
 
 local_test!(event_before_response_undeafen_unmutes_goxlr, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
-    w.discord.behaviour.event_first.set(Some(Duration::from_millis(50)));
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
+    w.discord
+        .behaviour
+        .event_first
+        .set(Some(Duration::from_millis(50)));
     let (ipc, goxlr) = connected(&w, status()).await;
     goxlr.patch(chat("MutedToX"));
     until("deaf", || ipc.voice("deaf")).await;
@@ -654,8 +822,14 @@ local_test!(event_before_response_undeafen_unmutes_goxlr, async {
 });
 
 local_test!(event_before_response_rapid_toggle, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
-    w.discord.behaviour.event_first.set(Some(Duration::from_millis(50)));
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
+    w.discord
+        .behaviour
+        .event_first
+        .set(Some(Duration::from_millis(50)));
     let (ipc, goxlr) = connected(&w, status()).await;
     sleep_ms(100).await;
     goxlr.patch(cough("MutedToX"));
@@ -672,11 +846,17 @@ local_test!(failed_set_is_retried, async {
     w.discord.behaviour.fail_next_set.set(true);
     goxlr.patch(cough("MutedToX"));
     sleep_ms(300).await;
-    assert!(ipc.voice("mute"), "GoXLR muted, Discord stays live, no retry");
+    assert!(
+        ipc.voice("mute"),
+        "GoXLR muted, Discord stays live, no retry"
+    );
 });
 
 local_test!(user_change_right_after_a_sync_is_kept, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
     let (ipc, goxlr) = connected(&w, status()).await;
     goxlr.patch(cough("MutedToX"));
     until("mute", || ipc.voice("mute")).await;
@@ -687,8 +867,14 @@ local_test!(user_change_right_after_a_sync_is_kept, async {
 });
 
 local_test!(rapid_toggle_event_between, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
-    w.discord.behaviour.event_between.set(Some((Duration::from_millis(30), Duration::from_millis(20))));
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
+    w.discord
+        .behaviour
+        .event_between
+        .set(Some((Duration::from_millis(30), Duration::from_millis(20))));
     let (_ipc, goxlr) = connected(&w, status()).await;
     sleep_ms(100).await;
     goxlr.patch(cough("MutedToX"));
@@ -699,8 +885,14 @@ local_test!(rapid_toggle_event_between, async {
 });
 
 local_test!(rapid_toggle_event_between_hot_mic, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
-    w.discord.behaviour.event_between.set(Some((Duration::from_millis(30), Duration::from_millis(20))));
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
+    w.discord
+        .behaviour
+        .event_between
+        .set(Some((Duration::from_millis(30), Duration::from_millis(20))));
     let (ipc, goxlr) = connected(&w, status_with(mixer("MutedToX", "All"))).await;
     until("mute", || ipc.voice("mute")).await;
     sleep_ms(100).await;
@@ -712,7 +904,10 @@ local_test!(rapid_toggle_event_between_hot_mic, async {
 });
 
 local_test!(two_way_discards_stream_mute, async {
-    let w = world(Config { bidirectional: true, ..cfg() });
+    let w = world(Config {
+        bidirectional: true,
+        ..cfg()
+    });
     let (ipc, goxlr) = connected(&w, status_with(mixer("MutedToX", "ToStream"))).await;
     sleep_ms(100).await;
     ipc.user_changes(json!({"mute": true}));
@@ -724,7 +919,11 @@ local_test!(two_way_discards_stream_mute, async {
 
 local_test!(two_way_skips_impossible_goxlr_state, async {
     // No trigger maps to a GoXLR state: pushing would be undone right away.
-    let w = world(Config { bidirectional: true, mute_triggers: vec!["ToVoiceChat".into()], ..cfg() });
+    let w = world(Config {
+        bidirectional: true,
+        mute_triggers: vec!["ToVoiceChat".into()],
+        ..cfg()
+    });
     let (ipc, goxlr) = connected(&w, status_with(mixer("Unmuted", "ToStream"))).await;
     sleep_ms(50).await;
     ipc.user_changes(json!({"mute": true}));
@@ -738,7 +937,13 @@ local_test!(unrelated_setting_change_keeps_discord_mute, async {
     let (ipc, _) = connected(&w, status()).await;
     sleep_ms(50).await;
     ipc.user_changes(json!({"mute": true}));
-    w.engine.apply_config(Config { notifications: false, ..cfg() }, false);
+    w.engine.apply_config(
+        Config {
+            notifications: false,
+            ..cfg()
+        },
+        false,
+    );
     sleep_ms(100).await;
     assert!(ipc.calls().is_empty() && ipc.voice("mute"));
 });

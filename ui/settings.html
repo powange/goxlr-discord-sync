@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GoXLR Discord Sync</title>
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="discord" aria-selected="true">Discord</button>
+  <button role="tab" data-tab="goxlr">GoXLR</button>
+  <button role="tab" data-tab="buttons" data-i18n="Buttons">Buttons</button>
+  <button role="tab" data-tab="behaviour" data-i18n="Behaviour">Behaviour</button>
+</nav>
+
+<main>
+  <section id="tab-discord">
+    <p id="first-run" class="banner" hidden data-i18n="Welcome! Enter your Discord application below to start syncing your GoXLR with Discord.">Welcome! Enter your Discord application below to start syncing your GoXLR with Discord.</p>
+    <p data-i18n="Discord only lets an application control your voice settings if you created it yourself. It takes two minutes:">Discord only lets an application control your voice settings if you created it yourself. It takes two minutes:</p>
+    <div class="steps">
+      <p data-i18n="1. Open the Discord Developer Portal and click “New Application”.">1. Open the Discord Developer Portal and click “New Application”.</p>
+      <p data-i18n="2. Copy the Application ID (Client ID) from “General Information”.">2. Copy the Application ID (Client ID) from “General Information”.</p>
+      <p data-i18n="3. In “OAuth2”, reset and copy the Client Secret.">3. In “OAuth2”, reset and copy the Client Secret.</p>
+      <p data-i18n="4. In “OAuth2 › Redirects”, add the redirect URL below, then save.">4. In “OAuth2 › Redirects”, add the redirect URL below, then save.</p>
+      <p data-i18n="5. Paste the Client ID and Client Secret here and click “Check”.">5. Paste the Client ID and Client Secret here and click “Check”.</p>
+    </div>
+    <button id="portal" data-i18n="Open Discord Developer Portal">Open Discord Developer Portal</button>
+    <div class="grid">
+      <label for="redirect" data-i18n="Redirect URL:">Redirect URL:</label>
+      <div class="row"><input id="redirect" readonly><button id="copy" data-i18n="Copy">Copy</button></div>
+      <label for="client_id" data-i18n="Client ID:">Client ID:</label>
+      <input id="client_id" autocomplete="off" spellcheck="false">
+      <label for="client_secret" data-i18n="Client Secret:">Client Secret:</label>
+      <div class="row"><input id="client_secret" type="password" autocomplete="off" spellcheck="false">
+        <label class="inline"><input type="checkbox" id="show_secret"> <span data-i18n="Show">Show</span></label></div>
+    </div>
+    <div class="row"><button id="check" data-i18n="Check">Check</button><span id="check_result" class="note"></span></div>
+  </section>
+
+  <section id="tab-goxlr" hidden>
+    <div class="grid">
+      <label for="goxlr_url" data-i18n="GoXLR Utility address:">GoXLR Utility address:</label>
+      <input id="goxlr_url" spellcheck="false">
+      <label for="mixer_serial" data-i18n="Device:">Device:</label>
+      <div class="row"><select id="mixer_serial"></select><button id="detect" data-i18n="Detect">Detect</button></div>
+      <span></span><span id="detect_result" class="note"></span>
+      <label for="deafen_channel" data-i18n="Channel that deafens Discord:">Channel that deafens Discord:</label>
+      <select id="deafen_channel"></select>
+    </div>
+    <div class="columns">
+      <fieldset id="mute_triggers"><legend data-i18n="Cough button mutes Discord when">Cough button mutes Discord when</legend></fieldset>
+      <fieldset id="deafen_triggers"><legend data-i18n="Channel fader deafens Discord when">Channel fader deafens Discord when</legend></fieldset>
+    </div>
+    <p class="note" data-i18n="“Muted to everything” is the hold-to-mute state. The other entries match the mute function configured for the button or fader in GoXLR Utility. Example: leave “Muted to Stream” unchecked to hide a sound from your stream without muting yourself in Discord.">“Muted to everything” is the hold-to-mute state. The other entries match the mute function configured for the button or fader in GoXLR Utility. Example: leave “Muted to Stream” unchecked to hide a sound from your stream without muting yourself in Discord.</p>
+  </section>
+
+  <section id="tab-buttons" hidden>
+    <p data-i18n="Give a Discord action to a GoXLR button. The button keeps its usual GoXLR function: an empty sampler slot or an unused effect button works best.">Give a Discord action to a GoXLR button. The button keeps its usual GoXLR function: an empty sampler slot or an unused effect button works best.</p>
+    <div class="grid" id="actions"></div>
+  </section>
+
+  <section id="tab-behaviour" hidden>
+    <div class="checks">
+      <label><input type="checkbox" id="cough_sync"> <span data-i18n="Cough button mutes Discord">Cough button mutes Discord</span></label>
+      <label><input type="checkbox" id="chat_sync"> <span data-i18n="Channel fader mute deafens Discord">Channel fader mute deafens Discord</span></label>
+      <label><input type="checkbox" id="bidirectional"> <span data-i18n="Two-way sync: muting or deafening in Discord updates the GoXLR">Two-way sync: muting or deafening in Discord updates the GoXLR</span></label>
+      <label><input type="checkbox" id="notifications"> <span data-i18n="Show notifications when a connection is lost or restored">Show notifications when a connection is lost or restored</span></label>
+      <label><input type="checkbox" id="check_updates"> <span data-i18n="Check for new versions once a day">Check for new versions once a day</span></label>
+      <label><input type="checkbox" id="autostart"> <span id="autostart_label">Start with Windows</span></label>
+    </div>
+    <div class="grid">
+      <label for="language" data-i18n="Language:">Language:</label>
+      <select id="language"></select>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <button id="open_log" class="secondary" data-i18n="Open log folder">Open log folder</button>
+  <span id="error" class="error" role="alert"></span>
+  <button id="cancel" class="secondary" data-i18n="Cancel">Cancel</button>
+  <button id="save" class="primary" data-i18n="Save">Save</button>
+</footer>
+<script src="settings.js"></script>
+</body>
+</html>
