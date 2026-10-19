@@ -107,11 +107,13 @@ pub struct IconSpec {
     pub slashed: bool,
 }
 
+/// Show a notification (title, message).
+pub type Notifier = Box<dyn Fn(&str, &str)>;
+
 pub struct Hooks {
     /// The status shown to the user changed.
     pub on_change: Box<dyn Fn()>,
-    /// Show a notification (title, message).
-    pub notify: Box<dyn Fn(&str, &str)>,
+    pub notify: Notifier,
 }
 
 impl Default for Hooks {
@@ -148,6 +150,9 @@ impl Flag {
         }
     }
 }
+
+/// What the user sees: the status and the two sync switches.
+type Signature = (Status, bool, bool);
 
 /// Why a Discord session ended.
 enum End {
@@ -194,7 +199,7 @@ struct Inner {
     pushed: RefCell<HashMap<&'static str, (String, String)>>,
     push_lock: tokio::sync::Mutex<()>,
     cancel_browser: watch::Sender<bool>,
-    last_signature: RefCell<Option<(Status, bool, bool)>>,
+    last_signature: RefCell<Option<Signature>>,
     tasks: RefCell<Vec<JoinHandle<()>>>,
 }
 

@@ -190,11 +190,33 @@ pub fn write_json(path: &Path, value: &Value) -> std::io::Result<()> {
 /// Write through a temporary file; the final rename is retried while Windows
 /// reports the file as busy (antivirus, indexer, the settings window reading it).
 pub fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    write_then_rename(path, data, false)
+}
+
+/// Same, readable by the owner only on Unix (secrets).
+pub fn atomic_write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    write_then_rename(path, data, true)
+}
+
+fn write_then_rename(path: &Path, data: &[u8], private: bool) -> std::io::Result<()> {
+    use std::io::Write;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
-    std::fs::write(&tmp, data)?;
+    let mut options = std::fs::File::options();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    if private {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = private;
+    let mut file = options.open(&tmp)?;
+    file.write_all(data)?;
+    file.sync_all()?;
+    drop(file);
     let mut last = None;
     for _ in 0..20 {
         match std::fs::rename(&tmp, path) {
