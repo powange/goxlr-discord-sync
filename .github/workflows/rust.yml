@@ -86,6 +86,20 @@ jobs:
         echo '{"bundle": {"createUpdaterArtifacts": false}}' > "$RUNNER_TEMP/no-updater.json"
         npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build --config "$RUNNER_TEMP/no-updater.json"
 
+    # Catches a wrong key, password or public key before a release needs them.
+    - name: Updater key matches the public key
+      if: runner.os == 'Linux' && github.event_name != 'pull_request'
+      env:
+        TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      run: |
+        sudo apt-get install -y minisign
+        file=$(ls target/release/bundle/appimage/*.AppImage)
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" signer sign "$file"
+        base64 -d "$file.sig" > "$RUNNER_TEMP/update.minisig"
+        pubkey=$(jq -r .plugins.updater.pubkey src-tauri/tauri.conf.json | base64 -d | sed -n 2p)
+        minisign -V -P "$pubkey" -m "$file" -x "$RUNNER_TEMP/update.minisig"
+
     - uses: actions/upload-artifact@v7
       with:
         name: bundle-${{ runner.os }}
