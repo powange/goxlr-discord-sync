@@ -15,6 +15,7 @@ from . import (
     REPO_URL,
     __version__,
     autostart,
+    cleanup,
     config,
     installer,
     logging_setup,
@@ -370,6 +371,8 @@ def main(argv=None) -> None:
             installer.register_uninstall(paths.app_dir() / paths.APP_EXE_NAME, __version__)
         except OSError as e:
             log.warning("Cannot update the Apps list entry: %s", e)
+    if paths.IS_FROZEN and paths.IS_WINDOWS:
+        threading.Thread(target=cleanup.cleanup_extraction_dirs, name="temp-cleanup", daemon=True).start()
 
     try:
         migration.run()

@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -84,3 +85,31 @@ def test_registry_autostart_uses_the_test_entry():
     assert autostart.is_enabled()
     autostart.disable()
     assert not autostart.is_enabled()
+
+
+def test_cleanup_keeps_a_folder_whose_dll_is_loaded(tmp_path):
+    """The real Windows guarantee: a running program's extraction folder cannot be renamed."""
+    import ctypes
+    import os
+    import shutil
+    import sys
+    import time
+
+    from goxlr_discord_sync import cleanup
+
+    in_use = tmp_path / "_MEI_inuse"
+    in_use.mkdir()
+    (in_use / cleanup.MARKER).write_text("x")
+    dll = in_use / "python399.dll"  # named like the runtime DLL a running app keeps loaded
+    source = next(p for p in (Path(sys.base_prefix) / "DLLs").glob("*.dll"))
+    shutil.copy(source, dll)
+    (in_use / "base_library.zip").write_bytes(b"x")
+    handle = ctypes.WinDLL(str(dll))  # loaded like python313.dll in a running app
+    old = time.time() - 7200
+    os.utime(in_use, (old, old))  # last: writing a file would make the folder recent again
+    try:
+        assert cleanup.cleanup_extraction_dirs(tmp_path, current="") == []
+        assert dll.exists() and (in_use / "base_library.zip").exists()  # untouched
+    finally:
+        ctypes.windll.kernel32.FreeLibrary(ctypes.c_void_p(handle._handle))
+    assert cleanup.cleanup_extraction_dirs(tmp_path, current="") == [in_use]  # unloaded: removed

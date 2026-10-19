@@ -111,6 +111,13 @@ def sign(target: Path) -> None:
         pfx.unlink(missing_ok=True)  # never leave the private key on disk
 
 
+def marker_args() -> list[str]:
+    """Data file that marks our extraction folder (see goxlr_discord_sync/cleanup.py)."""
+    marker = BUILD / "goxlr_discord_sync.marker"
+    marker.write_text(f"GoXLR Discord Sync {__version__}\n", encoding="utf-8")
+    return ["--add-data", f"{marker}{os.pathsep}."]
+
+
 def windows_only_args(name: str, description: str) -> list[str]:
     if os.name != "nt":
         return []
@@ -121,6 +128,7 @@ def build_app() -> Path:
     stop_running(f"{APP_NAME}.exe")
     pyinstaller([
         "--name", APP_NAME,
+        *marker_args(),
         *windows_only_args(APP_NAME, "GoXLR Discord Sync"),
         str(ROOT / "goxlr_discord_sync.pyw"),
     ])
@@ -139,6 +147,7 @@ def build_setup() -> Path:
     stop_running(f"{SETUP_NAME}.exe")
     pyinstaller([
         "--name", SETUP_NAME,
+        *marker_args(),
         *windows_only_args(SETUP_NAME, "GoXLR Discord Sync Setup"),
         "--add-data", f"{app_exe}{os.pathsep}.",
         str(ROOT / "setup_gui.py"),
