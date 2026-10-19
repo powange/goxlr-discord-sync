@@ -7,7 +7,6 @@ use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::host::{Cmd, Host};
@@ -56,7 +55,7 @@ fn autostart_label() -> String {
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let shared = app.state::<Host>().snapshot();
     let cfg = &shared.cfg;
-    let autostart = app.autolaunch().is_enabled().unwrap_or(false);
+    let autostart = crate::autostart::is_enabled(app);
     let item = |id: &str, text: String, enabled: bool| {
         MenuItem::with_id(app, id, text, enabled, None::<&str>)
     };
@@ -162,7 +161,7 @@ pub fn refresh(app: &AppHandle) {
         cfg.deafen_channel,
         shared.update,
         gds_core::i18n::current(),
-        app.autolaunch().is_enabled().unwrap_or(false)
+        crate::autostart::is_enabled(app)
     );
     static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
     let mut last = LAST.lock().unwrap();
@@ -207,21 +206,12 @@ fn on_menu(app: &AppHandle, id: &str) {
         "status" => show_status(app),
         "settings" => crate::settings::open(app),
         "autostart" => {
-            let launcher = app.autolaunch();
-            let result = if launcher.is_enabled().unwrap_or(false) {
-                launcher.disable()
-            } else {
-                launcher.enable()
-            };
-            if let Err(e) = result {
+            if let Err(e) = crate::autostart::set_enabled(app, !crate::autostart::is_enabled(app)) {
                 log::error!("Cannot change autostart: {e}");
                 crate::host::show_notification(
                     app,
                     &tr("Autostart", &[]),
-                    &tr(
-                        "Could not change the setting: {error}",
-                        &[("error", &e.to_string())],
-                    ),
+                    &tr("Could not change the setting: {error}", &[("error", &e)]),
                 );
             }
             refresh(app);

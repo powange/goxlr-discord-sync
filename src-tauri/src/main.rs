@@ -1,6 +1,7 @@
 //! GoXLR Discord Sync 3: tray application (Tauri 2) around the gds-core engine.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
 mod host;
 mod settings;
 mod tray;
@@ -12,7 +13,7 @@ use tauri::{Manager, RunEvent};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 fn autostart_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
-    let builder = tauri_plugin_autostart::Builder::new().app_name("GoXLR Discord Sync");
+    let builder = tauri_plugin_autostart::Builder::new().app_name(autostart::VALUE_NAME);
     #[cfg(target_os = "macos")]
     let builder = builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
     builder.build()
@@ -62,6 +63,7 @@ fn main() {
             log::info!("GoXLR Discord Sync {} starting", env!("CARGO_PKG_VERSION"));
             let handle = app.handle().clone();
             app.manage(host::start(handle.clone(), cfg.clone()));
+            autostart::migrate_from_python(&handle);
             tray::create(&handle)?;
             updates::announce_new_version(&handle);
             updates::start(handle.clone());

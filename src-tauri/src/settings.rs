@@ -1,5 +1,6 @@
 //! The settings window (ui/settings.html) and the commands it calls.
 
+use crate::autostart;
 use gds_core::config::{
     self, action_buttons, config_file, log_dir, Config, BUTTON_ACTIONS, FADER_CHANNELS,
     MUTE_TARGETS,
@@ -10,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::host::{secrets, Cmd, Host};
@@ -68,7 +68,7 @@ pub fn get_settings(app: AppHandle, host: tauri::State<'_, Host>) -> SettingsDat
         redirect_uri: cfg.redirect_uri(),
         config: cfg.to_value(),
         client_secret: secrets().client_secret(),
-        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        autostart: autostart::is_enabled(&app),
         platform: if cfg!(windows) {
             "windows"
         } else if cfg!(target_os = "macos") {
@@ -124,14 +124,9 @@ pub fn save_settings(
         cfg.save(&config_file())
     };
     save().map_err(|e| format!("{}\n{e}", tr("Could not save the settings:", &[])))?;
-    let launcher = app.autolaunch();
-    if payload.autostart != launcher.is_enabled().unwrap_or(false) {
-        let result = if payload.autostart {
-            launcher.enable()
-        } else {
-            launcher.disable()
-        };
-        result.map_err(|e| format!("{}\n{e}", tr("Could not save the settings:", &[])))?;
+    if payload.autostart != autostart::is_enabled(&app) {
+        autostart::set_enabled(&app, payload.autostart)
+            .map_err(|e| format!("{}\n{e}", tr("Could not save the settings:", &[])))?;
     }
     if cfg.language != old.language {
         log::info!("Interface language: {}", i18n::set_language(&cfg.language));
