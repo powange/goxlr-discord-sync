@@ -1,4 +1,4 @@
-//! Engine behaviour, ported from tests/test_engine.py and tests/test_engine_audit.py.
+//! Engine behaviour, ported from the test suite of the Python version (2.x).
 
 use async_trait::async_trait;
 use gds_core::auth::{AuthError, TokenService};
@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use tokio::sync::watch;
 
-// --- GoXLR status factories (tests/factories.py) ------------------------------
+// --- GoXLR status factories ------------------------------------------------------
 
 fn mixer(cough: &str, cough_type: &str) -> Value {
     json!({
@@ -459,7 +459,7 @@ macro_rules! local_test {
     };
 }
 
-// --- tests/test_engine.py --------------------------------------------------------
+// --- Engine scenarios -----------------------------------------------------------
 
 local_test!(cough_mutes_discord, async {
     let w = world(cfg());
@@ -761,7 +761,7 @@ local_test!(button_action_is_mirrored_with_two_way_sync, async {
     assert!(ipc.voice("mute"));
 });
 
-// --- tests/test_engine_audit.py (hot mic, echo handling, retries) ------------------
+// --- Audit scenarios (hot mic, echo handling, retries) ------------------------------
 
 fn cough_state(goxlr: &FakeGoxlr) -> Value {
     goxlr.field("/mixers/S1/cough_button/state")

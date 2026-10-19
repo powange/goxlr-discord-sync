@@ -1,26 +1,6 @@
-# Fichiers de configuration sensibles
-client_id.txt
-client_secret.txt
-discord_token.json
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-ENV/
-
-# PyInstaller
-build/
-dist/
-*.spec
-
-# Tooling
-.pytest_cache/
-.ruff_cache/
-.venv/
+# Rust
+/target/
+/src-tauri/gen/
 
 # IDE
 .vscode/
@@ -33,7 +13,3 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
-
-# Rust
-/target/
-/src-tauri/gen/

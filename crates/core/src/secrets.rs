@@ -160,7 +160,7 @@ mod dpapi {
         CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
     };
 
-    /// Same entropy and flags as goxlr_discord_sync/secure_store.py.
+    /// Same entropy and flags as the Python version (2.x), which wrote secrets.dat first.
     const ENTROPY: &[u8] = b"goxlr-discord-sync";
     const CRYPTPROTECT_UI_FORBIDDEN: u32 = 1;
 

@@ -1,6 +1,6 @@
 //! User interface language (logs stay in English). Texts are written in English
-//! in the code and passed through `tr`; the French catalog is shared with the
-//! Python version (i18n/fr.json, exported from goxlr_discord_sync/i18n_fr.py).
+//! in the code and passed through `tr`; French texts are in i18n/fr.json
+//! (catalog inherited from the Python version, kept clean by tests/i18n.rs).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

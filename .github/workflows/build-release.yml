@@ -4,91 +4,141 @@ on:
   push:
     branches: [main]
     tags:
-      - 'v2.*'  # Python releases (v3 is built by rust.yml)
+      - 'v*'
   pull_request:
+    paths: ['crates/**', 'src-tauri/**', 'ui/**', 'Cargo.*', '.github/workflows/build-release.yml']
   workflow_dispatch:
-    inputs:
-      self_signed_test:
-        description: Sign with a throwaway self-signed certificate (tests the signing steps)
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  TAURI_CLI_VERSION: 2.12.3
+  LINUX_DEPS: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+
 jobs:
-  test:
-    runs-on: ubuntu-24.04
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v7
 
-    - uses: actions/setup-python@v7
+    - name: Linux build dependencies
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+
+    - uses: dtolnay/rust-toolchain@stable
       with:
-        python-version: '3.13'
+        components: clippy, rustfmt
 
-    - name: Install dependencies
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Version matches the tag
+      if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux'
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements-dev.txt
+        version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "goxlr-discord-sync") | .version')
+        if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          echo "::error::Tag $GITHUB_REF_NAME does not match the Cargo version $version"
+          exit 1
+        fi
 
-    - name: Lint
-      run: ruff check .
+    - name: Format
+      if: runner.os == 'Linux'
+      run: cargo fmt --all --check
+
+    - name: Clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
 
     - name: Tests
-      run: pytest -q
+      run: cargo test --workspace
 
-  build:
-    needs: test
+  # main and pull request builds: installers to try, without updater signatures.
+  bundle:
+    needs: check
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Linux build dependencies
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+
+    - name: Bundle
+      shell: bash
+      run: |
+        echo '{"bundle": {"createUpdaterArtifacts": false}}' > "$RUNNER_TEMP/no-updater.json"
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build --config "$RUNNER_TEMP/no-updater.json"
+
+    # Catches a wrong key, password or public key before a release needs them.
+    - name: Updater key matches the public key
+      if: runner.os == 'Linux' && github.event_name != 'pull_request'
+      env:
+        TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      run: |
+        sudo apt-get install -y minisign
+        file=$(ls target/release/bundle/appimage/*.AppImage)
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" signer sign "$file"
+        base64 -d "$file.sig" > "$RUNNER_TEMP/update.minisig"
+        pubkey=$(jq -r .plugins.updater.pubkey src-tauri/tauri.conf.json | base64 -d | sed -n 2p)
+        minisign -V -P "$pubkey" -m "$file" -x "$RUNNER_TEMP/update.minisig"
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: bundle-${{ runner.os }}
+        path: |
+          target/release/bundle/nsis/*.exe
+          target/release/bundle/deb/*.deb
+          target/release/bundle/appimage/*.AppImage
+        if-no-files-found: error
+
+  # Releases (version tags). Code signing is inactive until SignPath is configured
+  # (secret SIGNPATH_API_TOKEN + variables SIGNPATH_ORGANIZATION_ID,
+  # SIGNPATH_PROJECT_SLUG, SIGNPATH_POLICY_SLUG). The updater signature
+  # (secret TAURI_SIGNING_PRIVATE_KEY [+ _PASSWORD]) is required and computed
+  # last, on the Authenticode-signed installer.
+  release-windows:
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/')
     permissions:
-      contents: write  # create the GitHub release
-      actions: read    # SignPath reads the uploaded artifacts
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+      contents: read
+      actions: read  # SignPath reads the uploaded artifacts
     runs-on: windows-latest
     env:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-      SIGN_PFX_CONFIGURED: ${{ secrets.SIGN_PFX_BASE64 != '' }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
     - uses: actions/checkout@v7
 
-    - uses: actions/setup-python@v7
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - uses: actions/setup-node@v7
       with:
-        python-version: '3.13'
+        node-version: 22
 
-    - name: Check that the tag matches the version
-      if: startsWith(github.ref, 'refs/tags/')
-      shell: python
-      run: |
-        import os, sys
-        sys.path.insert(0, ".")
-        from goxlr_discord_sync import __version__
-        tag = os.environ["GITHUB_REF_NAME"]
-        if tag != f"v{__version__}":
-            sys.exit(f"Tag {tag} does not match goxlr_discord_sync.__version__ ({__version__})")
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements-build.txt
-
-    # Code signing (inactive until configured, see README "Code signing"):
-    # - SignPath: secret SIGNPATH_API_TOKEN + variables SIGNPATH_ORGANIZATION_ID,
-    #   SIGNPATH_PROJECT_SLUG, SIGNPATH_POLICY_SLUG
-    # - certificate file: secrets SIGN_PFX_BASE64 + SIGN_PFX_PASSWORD (signed by build.py)
-    - name: Self-signed test certificate
-      if: inputs.self_signed_test
-      shell: pwsh
-      run: |
-        $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=GoXLR Discord Sync TEST" -CertStoreLocation Cert:\CurrentUser\My
-        $password = ConvertTo-SecureString -String "test" -Force -AsPlainText
-        Export-PfxCertificate -Cert $cert -FilePath test.pfx -Password $password | Out-Null
-        "TEST_PFX_BASE64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes('test.pfx')))" >> $env:GITHUB_ENV
-        Remove-Item test.pfx
-
-    - name: Build GoXLR_Discord_Sync.exe
-      run: python build.py app
-      env:
-        SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 || env.TEST_PFX_BASE64 }}
-        SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_BASE64 && secrets.SIGN_PFX_PASSWORD || 'test' }}
+    - name: Build the application
+      shell: bash
+      run: npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build --no-bundle
 
     - name: Upload the app for SignPath
       id: unsigned-app
@@ -96,7 +146,7 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: unsigned-app
-        path: dist/GoXLR_Discord_Sync.exe
+        path: target/release/goxlr-discord-sync.exe
 
     - name: Sign the app with SignPath
       if: env.SIGNPATH_API_TOKEN != ''
@@ -108,18 +158,22 @@ jobs:
         signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
         github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
         wait-for-completion: true
-        output-artifact-directory: dist/signed-app
+        output-artifact-directory: signed-app
 
     - name: Use the signed app
       if: env.SIGNPATH_API_TOKEN != ''
       shell: pwsh
-      run: Copy-Item dist/signed-app/GoXLR_Discord_Sync.exe dist/GoXLR_Discord_Sync.exe -Force
+      run: Copy-Item signed-app/goxlr-discord-sync.exe target/release/goxlr-discord-sync.exe -Force
 
-    - name: Build GoXLR_Setup.exe (bundles the signed app)
-      run: python build.py setup
-      env:
-        SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 || env.TEST_PFX_BASE64 }}
-        SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_BASE64 && secrets.SIGN_PFX_PASSWORD || 'test' }}
+    # Named GoXLR_Setup.exe like the Python releases: their updater downloads this
+    # asset (checked with SHA256SUMS.txt), so 2.x installs can update to v3.
+    - name: Build the installer (bundles the signed app)
+      shell: bash
+      run: |
+        echo '{"bundle": {"createUpdaterArtifacts": false}}' > "$RUNNER_TEMP/no-updater.json"
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" bundle --bundles nsis --config "$RUNNER_TEMP/no-updater.json"
+        mkdir dist
+        cp target/release/bundle/nsis/*-setup.exe dist/GoXLR_Setup.exe
 
     - name: Upload the setup for SignPath
       id: unsigned-setup
@@ -139,55 +193,119 @@ jobs:
         signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
         github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
         wait-for-completion: true
-        output-artifact-directory: dist/signed-setup
+        output-artifact-directory: signed-setup
 
     - name: Use the signed setup
       if: env.SIGNPATH_API_TOKEN != ''
       shell: pwsh
-      run: Copy-Item dist/signed-setup/GoXLR_Setup.exe dist/GoXLR_Setup.exe -Force
-
-    - name: Check signatures
-      if: env.SIGNPATH_API_TOKEN != '' || env.SIGN_PFX_CONFIGURED == 'true' || inputs.self_signed_test
-      shell: pwsh
       run: |
-        $unsigned = @()
-        foreach ($file in Get-ChildItem dist\*.exe) {
-          $sig = Get-AuthenticodeSignature $file.FullName
-          "{0}: {1} ({2})" -f $file.Name, $sig.Status, $sig.SignerCertificate.Subject
-          if ($null -eq $sig.SignerCertificate) { $unsigned += $file.Name }
+        Copy-Item signed-setup/GoXLR_Setup.exe dist/GoXLR_Setup.exe -Force
+        foreach ($file in @('target/release/goxlr-discord-sync.exe', 'dist/GoXLR_Setup.exe')) {
+          $sig = Get-AuthenticodeSignature $file
+          "{0}: {1} ({2})" -f $file, $sig.Status, $sig.SignerCertificate.Subject
+          if ($null -eq $sig.SignerCertificate) { throw "Not signed: $file" }
         }
-        if ($unsigned) { throw "Not signed: $($unsigned -join ', ')" }
 
-    - name: Checksums
-      run: python build.py checksums
+    - name: Updater signature
+      shell: bash
+      run: |
+        if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+          echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY is missing (see README)"
+          exit 1
+        fi
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" signer sign dist/GoXLR_Setup.exe
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: release-windows
+        path: |
+          dist/GoXLR_Setup.exe
+          dist/GoXLR_Setup.exe.sig
+        if-no-files-found: error
+
+  release-linux:
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Linux build dependencies
+      run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+
+    - name: Build the packages
+      run: |
+        echo '{"bundle": {"createUpdaterArtifacts": false}}' > "$RUNNER_TEMP/no-updater.json"
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build --bundles deb appimage --config "$RUNNER_TEMP/no-updater.json"
+        mkdir dist
+        cp target/release/bundle/deb/*.deb dist/goxlr-discord-sync_amd64.deb
+        cp target/release/bundle/appimage/*.AppImage dist/GoXLR_Discord_Sync_amd64.AppImage
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" signer sign dist/GoXLR_Discord_Sync_amd64.AppImage
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: release-linux
+        path: dist/*
+        if-no-files-found: error
+
+  publish:
+    needs: [release-windows, release-linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # create the GitHub release
+    steps:
+    - uses: actions/download-artifact@v7
+      with:
+        pattern: release-*
+        merge-multiple: true
+        path: dist
+
+    # latest.json is read by the updater of v3 (plugins.updater.endpoints).
+    - name: Checksums and updater manifest
+      working-directory: dist
+      run: |
+        sha256sum GoXLR_Setup.exe goxlr-discord-sync_amd64.deb GoXLR_Discord_Sync_amd64.AppImage > SHA256SUMS.txt
+        base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+        jq -n \
+          --arg version "${GITHUB_REF_NAME#v}" \
+          --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --arg notes "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}" \
+          --arg win_sig "$(cat GoXLR_Setup.exe.sig)" --arg win_url "$base/GoXLR_Setup.exe" \
+          --arg linux_sig "$(cat GoXLR_Discord_Sync_amd64.AppImage.sig)" --arg linux_url "$base/GoXLR_Discord_Sync_amd64.AppImage" \
+          '{version: $version, notes: $notes, pub_date: $date, platforms: {
+             "windows-x86_64": {signature: $win_sig, url: $win_url},
+             "linux-x86_64": {signature: $linux_sig, url: $linux_url}}}' > latest.json
+        cat latest.json SHA256SUMS.txt
 
     - name: Create Release
       uses: softprops/action-gh-release@v3
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         files: |
           dist/GoXLR_Setup.exe
+          dist/goxlr-discord-sync_amd64.deb
+          dist/GoXLR_Discord_Sync_amd64.AppImage
           dist/SHA256SUMS.txt
+          dist/latest.json
         generate_release_notes: true
         body: |
           ## Installation
-          1. Download `GoXLR_Setup.exe`
-          2. Run it and follow the setup wizard
-          3. Approve the authorization request in Discord on first launch
+          **Windows:** download `GoXLR_Setup.exe` and run it. Versions 2.x update to this version from their tray menu.
+          **Linux (x86_64):** `goxlr-discord-sync_amd64.deb` (Debian, Ubuntu) or `GoXLR_Discord_Sync_amd64.AppImage`.
 
-          Requirements: Windows 10/11, GoXLR Utility, Discord desktop app.
-          Verify the download with `SHA256SUMS.txt` (`certutil -hashfile GoXLR_Setup.exe SHA256`).
+          Requirements: GoXLR Utility and the Discord desktop app.
+          Verify the download with `SHA256SUMS.txt`.
 
           ## Code signing policy
           Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/) (signed releases start once the project is accepted).
           See the [code signing policy](https://github.com/powange/goxlr-discord-sync#code-signing-policy) and the [privacy policy](https://github.com/powange/goxlr-discord-sync#privacy-policy).
-
-    - name: Upload artifacts
-      if: github.event_name == 'workflow_dispatch'
-      uses: actions/upload-artifact@v7
-      with:
-        name: GoXLR_Setup
-        path: |
-          dist/GoXLR_Setup.exe
-          dist/GoXLR_Discord_Sync.exe
-          dist/SHA256SUMS.txt

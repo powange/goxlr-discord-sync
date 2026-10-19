@@ -99,3 +99,25 @@ fn placeholders_match() {
         assert_eq!(placeholders(&en), placeholders(&fr), "{en:?}");
     }
 }
+
+#[test]
+fn every_translation_is_used() {
+    // A text can also reach tr() or t() through a table, so look for the literal anywhere.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut sources = String::new();
+    for dir in ["crates/core/src", "src-tauri/src", "ui"] {
+        for entry in std::fs::read_dir(root.join(dir)).unwrap() {
+            sources += &std::fs::read_to_string(entry.unwrap().path()).unwrap_or_default();
+        }
+    }
+    let mut unused: Vec<String> = catalog()
+        .into_keys()
+        .filter(|text| !sources.contains(&serde_json::to_string(text).unwrap()))
+        .collect();
+    unused.sort();
+    assert!(
+        unused.is_empty(),
+        "unused French translations:\n{}",
+        unused.join("\n")
+    );
+}

@@ -146,7 +146,7 @@ ui/                     # settings window (HTML, CSS, JavaScript)
 
 ## 🔏 Code signing
 
-The executables are not signed yet, so Windows SmartScreen may warn on the first download. The release workflow (`.github/workflows/rust.yml`) signs them with SignPath as soon as it is configured; until then releases are built unsigned.
+The executables are not signed yet, so Windows SmartScreen may warn on the first download. The release workflow (`.github/workflows/build-release.yml`) signs them with SignPath as soon as it is configured; until then releases are built unsigned.
 
 1. Apply at https://signpath.org (SignPath Foundation, open-source program) with this repository.
 2. In SignPath, create the project, paste `signing/signpath-artifact-configuration.xml` as its artifact configuration, and add GitHub as trusted build system for this repository.
