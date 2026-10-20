@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoXLR Discord Sync</title>
+<meta name="description" content="Free app that mirrors your GoXLR mute buttons to Discord: Cough button mutes your Discord mic, Chat fader deafens you. Windows and Linux.">
+<meta property="og:title" content="GoXLR Discord Sync">
+<meta property="og:description" content="Your GoXLR mute buttons, mirrored in Discord. Free and open source.">
+<meta property="og:image" content="https://powange.github.io/goxlr-discord-sync/img/icon.png">
+<link rel="icon" href="img/icon.png">
+<style>
+:root {
+  --bg: #f5f6fa;
+  --surface: #ffffff;
+  --fg: #181a22;
+  --muted: #5a5f70;
+  --line: #dfe2ea;
+  --accent: #4b4dc4;
+  --accent-fg: #ffffff;
+  --accent-soft: #e9e9fb;
+  --green: #22a052;
+  --hero-1: #23254a;
+  --hero-2: #3b3e92;
+  --code-bg: #eef0f5;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121319;
+    --surface: #1b1d26;
+    --fg: #e8e9ef;
+    --muted: #a3a7b6;
+    --line: #2d303c;
+    --accent: #8f91ff;
+    --accent-fg: #121319;
+    --accent-soft: #262849;
+    --green: #4cc97b;
+    --hero-1: #191a33;
+    --hero-2: #2b2d6e;
+    --code-bg: #262934;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 17px/1.6 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+/* Only the texts of the chosen language are shown. */
+html[data-lang="en"] [lang="fr"], html[data-lang="fr"] [lang="en"] { display: none !important; }
+a { color: var(--accent); }
+img { max-width: 100%; height: auto; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; background: var(--code-bg); padding: 0.1em 0.4em; border-radius: 4px; overflow-wrap: anywhere; }
+h1, h2, h3 { line-height: 1.2; margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.container { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+/* Top bar */
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #fff; text-decoration: none; }
+.brand img { width: 32px; height: 32px; }
+.bar-links { display: flex; align-items: center; gap: 8px; }
+.bar-links a, .lang-switch button {
+  color: #fff; text-decoration: none; font: inherit; font-size: 0.9rem;
+  border: 1px solid rgba(255,255,255,0.35); background: transparent; border-radius: 999px; padding: 4px 12px; cursor: pointer;
+}
+.lang-switch { display: flex; gap: 4px; }
+.lang-switch button[aria-pressed="true"] { background: #fff; color: var(--hero-1); border-color: #fff; }
+
+/* Hero */
+.hero { background: linear-gradient(135deg, var(--hero-1), var(--hero-2)); color: #fff; padding-bottom: 72px; }
+.hero-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; align-items: center; padding-top: 40px; }
+@media (max-width: 820px) { .hero-body { grid-template-columns: minmax(0, 1fr); gap: 32px; } }
+.hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; letter-spacing: -0.01em; }
+.hero .lede { margin-top: 16px; font-size: 1.15rem; color: rgba(255,255,255,0.85); max-width: 34em; }
+.cta { margin-top: 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.download {
+  display: inline-flex; align-items: center; gap: 12px;
+  background: var(--green); color: #fff; text-decoration: none; font-weight: 700; font-size: 1.15rem;
+  padding: 14px 26px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+}
+.download:hover { filter: brightness(1.08); }
+.download svg { width: 22px; height: 22px; flex: none; }
+.cta small { color: rgba(255,255,255,0.75); font-size: 0.9rem; }
+.cta small a { color: #fff; }
+.works { margin-top: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 0.92rem; color: rgba(255,255,255,0.8); }
+.works .chip { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; padding: 4px 12px; color: #fff; font-weight: 600; }
+.works .chip img { width: 20px; height: 20px; background: #fff; border-radius: 50%; padding: 3px; }
+.bar-links a.star { display: inline-flex; align-items: center; gap: 6px; }
+.js-stars:not(:empty) { font-variant-numeric: tabular-nums; background: rgba(255,255,255,0.18); border-radius: 999px; padding: 0 8px; }
+.support { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.support p { color: var(--muted); max-width: 36em; }
+.star-big { display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--accent-fg); text-decoration: none; font-weight: 700; padding: 12px 24px; border-radius: 12px; }
+.star-big:hover { filter: brightness(1.08); }
+.hero-shot { background: var(--surface); border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.35); }
+.hero-shot img { display: block; }
+
+/* Sections */
+section { padding: 64px 0; }
+section + section { border-top: 1px solid var(--line); }
+.eyebrow { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; color: var(--accent); }
+section h2 { font-size: clamp(1.6rem, 3.5vw, 2.1rem); margin-top: 6px; }
+section .intro { color: var(--muted); margin-top: 10px; max-width: 42em; }
+
+.cards { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+.card .emoji { font-size: 1.6rem; line-height: 1; }
+.card h3 { font-size: 1.08rem; }
+.card p { color: var(--muted); font-size: 0.97rem; }
+
+.states { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.state { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.state img { width: 40px; height: 40px; flex: none; }
+.state b { display: block; font-size: 0.97rem; }
+.state span { color: var(--muted); font-size: 0.88rem; }
+
+/* Steps */
+.steps { margin-top: 32px; display: flex; flex-direction: column; gap: 20px; counter-reset: step; }
+.step { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
+.step::before {
+  counter-increment: step; content: counter(step);
+  width: 40px; height: 40px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+  display: grid; place-items: center; font-weight: 800; font-size: 1.15rem;
+}
+.step h3 { font-size: 1.15rem; }
+.step-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.step-body p, .step-body li { color: var(--muted); }
+.step-body ol, .step-body ul { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
+.step-body strong { color: var(--fg); }
+.step-shot { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; max-width: 640px; }
+.step-shot img { display: block; }
+.tip { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; padding: 10px 14px; color: var(--fg) !important; font-size: 0.95rem; }
+@media (max-width: 520px) { .step { grid-template-columns: minmax(0, 1fr); } }
+
+/* FAQ */
+.faq { margin-top: 28px; display: flex; flex-direction: column; gap: 10px; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 0 20px; }
+summary { cursor: pointer; font-weight: 700; padding: 16px 0; list-style-position: outside; }
+details[open] summary { border-bottom: 1px solid var(--line); }
+details .answer { padding: 14px 0 18px; color: var(--muted); display: flex; flex-direction: column; gap: 8px; }
+
+footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 0.92rem; }
+footer .container { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+footer nav { display: flex; flex-wrap: wrap; gap: 16px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="container">
+    <div class="bar">
+      <a class="brand" href="#"><img src="img/icon.png" alt="" width="32" height="32">GoXLR Discord Sync</a>
+      <div class="bar-links">
+        <div class="lang-switch" role="group" aria-label="Language">
+          <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
+          <button type="button" data-set-lang="fr" aria-pressed="false">FR</button>
+        </div>
+        <a class="star" href="https://github.com/powange/goxlr-discord-sync" title="Star on GitHub"><span aria-hidden="true">★</span> <span lang="en">Star</span><span lang="fr">Étoile</span> <span class="js-stars"></span></a>
+      </div>
+    </div>
+
+    <div class="hero-body">
+      <div>
+        <h1>
+          <span lang="en">Your GoXLR mute buttons, mirrored in Discord</span>
+          <span lang="fr">Les boutons mute de ton GoXLR, enfin reliés à Discord</span>
+        </h1>
+        <p class="lede">
+          <span lang="en">Press the Cough button and your Discord mic is muted. Mute the Chat fader and Discord deafens you. No hotkeys to set up, no double muting: a small free app does it in the background.</span>
+          <span lang="fr">Appuie sur le bouton Cough et ton micro Discord est coupé. Coupe le fader Chat et Discord te met en sourdine. Pas de raccourcis clavier à régler, pas de double mute : une petite application gratuite s'en charge en arrière-plan.</span>
+        </p>
+        <div class="cta">
+          <a class="download" href="https://github.com/powange/goxlr-discord-sync/releases/latest/download/GoXLR_Setup.exe">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 20h16"/></svg>
+            <span lang="en">Download for Windows</span>
+            <span lang="fr">Télécharger pour Windows</span>
+          </a>
+          <small>
+            <span lang="en"><span class="js-version">Latest version</span> · Windows 10/11 · free and open source</span>
+            <span lang="fr"><span class="js-version">Dernière version</span> · Windows 10/11 · gratuit et open source</span>
+          </small>
+          <small>
+            <span lang="en">Linux: <a href="https://github.com/powange/goxlr-discord-sync/releases/latest/download/goxlr-discord-sync_amd64.deb">.deb package</a> or <a href="https://github.com/powange/goxlr-discord-sync/releases/latest/download/GoXLR_Discord_Sync_amd64.AppImage">AppImage</a></span>
+            <span lang="fr">Linux : <a href="https://github.com/powange/goxlr-discord-sync/releases/latest/download/goxlr-discord-sync_amd64.deb">paquet .deb</a> ou <a href="https://github.com/powange/goxlr-discord-sync/releases/latest/download/GoXLR_Discord_Sync_amd64.AppImage">AppImage</a></span>
+          </small>
+        </div>
+        <div class="works">
+          <span lang="en">Works with</span><span lang="fr">Fonctionne avec</span>
+          <span class="chip"><img src="img/discord.svg" alt="" width="20" height="20">Discord</span>
+          <span class="chip">GoXLR · GoXLR Mini</span>
+        </div>
+      </div>
+      <div class="hero-shot">
+        <img lang="en" src="img/settings-goxlr-en.png" alt="Settings window, GoXLR tab: GoXLR Utility address, device, deafen channel and which mute functions count" width="760" height="640">
+        <img lang="fr" src="img/settings-goxlr-fr.png" alt="Fenêtre des réglages, onglet GoXLR : adresse de GoXLR Utility, appareil, canal de sourdine et fonctions de mute prises en compte" width="760" height="640">
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section id="features">
+    <div class="container">
+      <span class="eyebrow"><span lang="en">What it does</span><span lang="fr">Ce que ça fait</span></span>
+      <h2><span lang="en">One press on the GoXLR, Discord follows</span><span lang="fr">Un appui sur le GoXLR, Discord suit</span></h2>
+      <div class="cards">
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🎙️</span>
+          <h3><span lang="en">Cough button → Discord mute</span><span lang="fr">Bouton Cough → micro Discord coupé</span></h3>
+          <p><span lang="en">Your friends stop hearing you the moment you press it, and hear you again when you release it.</span><span lang="fr">Tes amis ne t'entendent plus dès que tu appuies, et t'entendent de nouveau quand tu relâches.</span></p>
+        </div>
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🎧</span>
+          <h3><span lang="en">Chat fader → Discord deafen</span><span lang="fr">Fader Chat → sourdine Discord</span></h3>
+          <p><span lang="en">Mute the fader that carries Discord and you are deafened in Discord too, so everyone sees you are away.</span><span lang="fr">Coupe le fader qui porte Discord et tu es aussi en sourdine dans Discord : tout le monde voit que tu n'écoutes plus.</span></p>
+        </div>
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🔄</span>
+          <h3><span lang="en">Two-way sync</span><span lang="fr">Synchronisation dans les deux sens</span></h3>
+          <p><span lang="en">Optional: mute yourself in Discord and the GoXLR button lights up to match.</span><span lang="fr">En option : coupe ton micro dans Discord et le bouton du GoXLR s'allume aussi.</span></p>
+        </div>
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🎛️</span>
+          <h3><span lang="en">Extra buttons</span><span lang="fr">Boutons supplémentaires</span></h3>
+          <p><span lang="en">Turn an unused sampler or effect button into “toggle mute”, “toggle deafen” or “leave the voice channel”.</span><span lang="fr">Transforme un bouton de sampler ou d'effet inutilisé en « couper le micro », « sourdine » ou « quitter le salon vocal ».</span></p>
+        </div>
+        <div class="card">
+          <span class="emoji" aria-hidden="true">📺</span>
+          <h3><span lang="en">Stream friendly</span><span lang="fr">Pensé pour le stream</span></h3>
+          <p><span lang="en">Muting a channel only “to Stream” does not mute you in Discord. You choose which GoXLR mute modes count.</span><span lang="fr">Couper un canal seulement « pour le stream » ne te coupe pas dans Discord. Tu choisis quels modes de mute du GoXLR comptent.</span></p>
+        </div>
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🪶</span>
+          <h3><span lang="en">Light and automatic</span><span lang="fr">Léger et automatique</span></h3>
+          <p><span lang="en">A 3 MB app that starts with your computer, reconnects on its own and offers updates when they come out.</span><span lang="fr">Une application de 3 Mo qui démarre avec l'ordinateur, se reconnecte toute seule et propose les mises à jour quand elles sortent.</span></p>
+        </div>
+      </div>
+
+      <h3 style="margin-top: 40px"><span lang="en">The tray icon shows where you stand</span><span lang="fr">L'icône près de l'horloge te dit où tu en es</span></h3>
+      <div class="states">
+        <div class="state"><img src="img/tray-live-mic.png" alt="" width="40" height="40"><div><b><span lang="en">Mic live</span><span lang="fr">Micro ouvert</span></b><span><span lang="en">People hear you</span><span lang="fr">On t'entend</span></span></div></div>
+        <div class="state"><img src="img/tray-muted-mic.png" alt="" width="40" height="40"><div><b><span lang="en">Muted</span><span lang="fr">Micro coupé</span></b><span><span lang="en">Discord mic is off</span><span lang="fr">Ton micro Discord est coupé</span></span></div></div>
+        <div class="state"><img src="img/tray-muted-headphones-slashed.png" alt="" width="40" height="40"><div><b><span lang="en">Deafened</span><span lang="fr">En sourdine</span></b><span><span lang="en">You hear nobody</span><span lang="fr">Tu n'entends plus personne</span></span></div></div>
+        <div class="state"><img src="img/tray-warning-mic.png" alt="" width="40" height="40"><div><b><span lang="en">Waiting</span><span lang="fr">En attente</span></b><span><span lang="en">GoXLR Utility or Discord not running</span><span lang="fr">GoXLR Utility ou Discord n'est pas lancé</span></span></div></div>
+        <div class="state"><img src="img/tray-idle-mic.png" alt="" width="40" height="40"><div><b><span lang="en">Action needed</span><span lang="fr">Action requise</span></b><span><span lang="en">Open the settings</span><span lang="fr">Ouvre les réglages</span></span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <div class="container">
+      <span class="eyebrow"><span lang="en">Getting started</span><span lang="fr">Pour commencer</span></span>
+      <h2><span lang="en">Set up in about five minutes</span><span lang="fr">Prêt en cinq minutes environ</span></h2>
+      <p class="intro"><span lang="en">You only do this once. After that, the app starts with your computer and you can forget about it.</span><span lang="fr">À faire une seule fois. Ensuite l'application démarre avec l'ordinateur et tu peux l'oublier.</span></p>
+
+      <div class="steps">
+        <div class="step"><div class="step-body">
+          <h3><span lang="en">Check you have the two programs it talks to</span><span lang="fr">Vérifie que tu as les deux logiciels avec lesquels il dialogue</span></h3>
+          <ul>
+            <li><span lang="en"><strong>GoXLR Utility</strong>, the free community app for the GoXLR (<a href="https://github.com/GoXLR-on-Linux/goxlr-utility/releases/latest">download it here</a>). The official TC-Helicon app has no connection for other programs, so it cannot be used.</span><span lang="fr"><strong>GoXLR Utility</strong>, l'application communautaire gratuite pour le GoXLR (<a href="https://github.com/GoXLR-on-Linux/goxlr-utility/releases/latest">à télécharger ici</a>). L'application officielle de TC-Helicon n'offre pas de connexion aux autres logiciels, elle ne convient donc pas.</span></li>
+            <li><span lang="en">The <strong>Discord desktop app</strong> (Discord in a web browser cannot be controlled).</span><span lang="fr">L'<strong>application Discord pour ordinateur</strong> (Discord dans un navigateur ne peut pas être piloté).</span></li>
+          </ul>
+        </div></div>
+
+        <div class="step"><div class="step-body">
+          <h3><span lang="en">Download and install</span><span lang="fr">Télécharge et installe</span></h3>
+          <p><span lang="en">Click <a href="https://github.com/powange/goxlr-discord-sync/releases/latest/download/GoXLR_Setup.exe">Download for Windows</a>, open <code>GoXLR_Setup.exe</code> and follow the installer (Next, Install, Finish).</span><span lang="fr">Clique sur <a href="https://github.com/powange/goxlr-discord-sync/releases/latest/download/GoXLR_Setup.exe">Télécharger pour Windows</a>, ouvre <code>GoXLR_Setup.exe</code> et suis l'installation (Suivant, Installer, Terminer).</span></p>
+          <p class="tip"><span lang="en">If Windows shows “Windows protected your PC”, click <strong>More info</strong> then <strong>Run anyway</strong>. It appears because this free project has no paid code signing certificate.</span><span lang="fr">Si Windows affiche « Windows a protégé votre ordinateur », clique sur <strong>Informations complémentaires</strong> puis <strong>Exécuter quand même</strong>. Ce message vient du fait que ce projet gratuit n'a pas de certificat de signature payant.</span></p>
+        </div></div>
+
+        <div class="step"><div class="step-body">
+          <h3><span lang="en">Create your Discord application</span><span lang="fr">Crée ton application Discord</span></h3>
+          <p><span lang="en">Discord only lets a program change your mute if you created a small “application” for it yourself. It is free and the settings window guides you:</span><span lang="fr">Discord ne laisse un logiciel couper ton micro que si tu lui as créé toi-même une petite « application ». C'est gratuit et la fenêtre des réglages te guide :</span></p>
+          <ol>
+            <li><span lang="en">Click <strong>Open Discord Developer Portal</strong>, log in and click <strong>New Application</strong> (any name).</span><span lang="fr">Clique sur <strong>Ouvrir le portail développeur Discord</strong>, connecte-toi et clique sur <strong>New Application</strong> (n'importe quel nom).</span></li>
+            <li><span lang="en">Copy the <strong>Application ID</strong> into “Client ID”.</span><span lang="fr">Copie l'<strong>Application ID</strong> dans « Client ID ».</span></li>
+            <li><span lang="en">In <strong>OAuth2</strong>, click <strong>Reset Secret</strong> and copy it into “Client Secret”.</span><span lang="fr">Dans <strong>OAuth2</strong>, clique sur <strong>Reset Secret</strong> et copie-le dans « Client Secret ».</span></li>
+            <li><span lang="en">Still in OAuth2, under <strong>Redirects</strong>, paste <code>http://127.0.0.1:9543/callback</code> (the <strong>Copy</strong> button does it for you) and save.</span><span lang="fr">Toujours dans OAuth2, dans <strong>Redirects</strong>, colle <code>http://127.0.0.1:9543/callback</code> (le bouton <strong>Copier</strong> le fait pour toi) et enregistre.</span></li>
+            <li><span lang="en">Click <strong>Check</strong>, then <strong>Save</strong>.</span><span lang="fr">Clique sur <strong>Vérifier</strong>, puis <strong>Enregistrer</strong>.</span></li>
+          </ol>
+          <div class="step-shot">
+            <img lang="en" src="img/settings-discord-en.png" alt="Settings window, Discord tab, with the five steps, the redirect URL and the Client ID and Client Secret fields" width="760" height="640" loading="lazy">
+            <img lang="fr" src="img/settings-discord-fr.png" alt="Fenêtre des réglages, onglet Discord, avec les cinq étapes, l'URL de redirection et les champs Client ID et Client Secret" width="760" height="640" loading="lazy">
+          </div>
+        </div></div>
+
+        <div class="step"><div class="step-body">
+          <h3><span lang="en">Approve in Discord, and you are done</span><span lang="fr">Accepte dans Discord, et c'est fini</span></h3>
+          <p><span lang="en">Discord shows a window asking to authorize your application: click <strong>Authorize</strong>. The tray icon turns green. Press the Cough button to try it.</span><span lang="fr">Discord affiche une fenêtre qui demande d'autoriser ton application : clique sur <strong>Autoriser</strong>. L'icône devient verte. Appuie sur le bouton Cough pour essayer.</span></p>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="container">
+      <span class="eyebrow">FAQ</span>
+      <h2><span lang="en">Questions</span><span lang="fr">Questions</span></h2>
+      <div class="faq">
+        <details>
+          <summary><span lang="en">Is it free? Is it safe?</span><span lang="fr">C'est gratuit ? C'est sûr ?</span></summary>
+          <div class="answer">
+            <p><span lang="en">Yes, it is free and open source (MIT licence): anyone can read the code on GitHub. It collects no data and has no telemetry. It only talks to GoXLR Utility and Discord on your own computer, to Discord's servers when you authorize it, and to GitHub to check for updates (you can turn that off).</span><span lang="fr">Oui, c'est gratuit et open source (licence MIT) : tout le monde peut lire le code sur GitHub. Aucune donnée n'est collectée. L'application ne parle qu'à GoXLR Utility et à Discord sur ton ordinateur, aux serveurs de Discord quand tu l'autorises, et à GitHub pour chercher les mises à jour (désactivable).</span></p>
+            <p><span lang="en">Your Discord secret and tokens stay on your computer, encrypted by Windows.</span><span lang="fr">Ton secret et tes jetons Discord restent sur ton ordinateur, chiffrés par Windows.</span></p>
+          </div>
+        </details>
+        <details>
+          <summary><span lang="en">Why do I need my own Discord application?</span><span lang="fr">Pourquoi dois-je créer ma propre application Discord ?</span></summary>
+          <div class="answer"><p><span lang="en">Discord reserves voice control to applications it has approved, or to the person who created the application. Creating your own takes two minutes and means nobody else is involved: you stay in control and can revoke it at any time in Discord (User Settings › Authorized Apps).</span><span lang="fr">Discord réserve le contrôle de la voix aux applications qu'il a validées, ou à la personne qui a créé l'application. En créer une prend deux minutes et personne d'autre n'intervient : tu gardes la main et tu peux la révoquer quand tu veux dans Discord (Paramètres › Applications autorisées).</span></p></div>
+        </details>
+        <details>
+          <summary><span lang="en">I mute Chat “to Stream” only, will Discord deafen me?</span><span lang="fr">Je coupe Chat seulement « pour le stream », Discord va me mettre en sourdine ?</span></summary>
+          <div class="answer"><p><span lang="en">No. By default the Chat fader only deafens you when it is muted to everything or to your headphones, and the Cough button only mutes you when it mutes everything or Voice Chat. You can change this in Settings › GoXLR.</span><span lang="fr">Non. Par défaut, le fader Chat ne te met en sourdine que s'il coupe tout ou ton casque, et le bouton Cough ne coupe ton micro que s'il coupe tout ou le chat vocal. Tu peux changer ça dans Réglages › GoXLR.</span></p></div>
+        </details>
+        <details>
+          <summary><span lang="en">How do updates work?</span><span lang="fr">Comment se font les mises à jour ?</span></summary>
+          <div class="answer"><p><span lang="en">Once a day the app checks for a new version. If there is one, a notification tells you; choose <strong>Install update</strong> in the tray menu. The update is checked, installed in a few seconds and the app starts again, with your settings kept. Nothing is installed without your OK, and a pending update waits until you leave your voice call.</span><span lang="fr">Une fois par jour, l'application regarde s'il y a une nouvelle version. Si oui, une notification te prévient ; choisis <strong>Installer la mise à jour</strong> dans le menu de l'icône. La mise à jour est vérifiée, installée en quelques secondes et l'application redémarre, avec tes réglages. Rien n'est installé sans ton accord, et l'annonce attend que tu aies quitté ton appel vocal.</span></p></div>
+        </details>
+        <details>
+          <summary><span lang="en">It does not work, what can I check?</span><span lang="fr">Ça ne marche pas, que vérifier ?</span></summary>
+          <div class="answer">
+            <p><span lang="en">Hover over or left-click the tray icon to see what it is waiting for. Orange means GoXLR Utility or the Discord desktop app is not running. Grey means the settings need your Discord application, or Discord needs your approval again (menu › Authorize Discord again).</span><span lang="fr">Survole ou clique sur l'icône pour voir ce qu'elle attend. Orange : GoXLR Utility ou l'application Discord n'est pas lancé. Gris : il manque ton application Discord dans les réglages, ou Discord doit de nouveau être autorisé (menu › Autoriser Discord à nouveau).</span></p>
+            <p><span lang="en">Still stuck? <a href="https://github.com/powange/goxlr-discord-sync/issues">Report the problem on GitHub</a> and attach the log (menu › Open log).</span><span lang="fr">Toujours bloqué ? <a href="https://github.com/powange/goxlr-discord-sync/issues">Signale le problème sur GitHub</a> en joignant le journal (menu › Ouvrir le journal).</span></p>
+          </div>
+        </details>
+        <details>
+          <summary><span lang="en">How do I uninstall it?</span><span lang="fr">Comment le désinstaller ?</span></summary>
+          <div class="answer"><p><span lang="en">Windows Settings › Apps › Installed apps › GoXLR Discord Sync › Uninstall. Tick “Delete the application data” to remove your settings too.</span><span lang="fr">Paramètres Windows › Applications › Applications installées › GoXLR Discord Sync › Désinstaller. Coche « Supprimer les données de l'application » pour effacer aussi tes réglages.</span></p></div>
+        </details>
+      </div>
+    </div>
+  </section>
+  <section id="support">
+    <div class="container support">
+      <h2><span lang="en">Like it? Give it a star</span><span lang="fr">Ça te plaît ? Mets une étoile</span></h2>
+      <p><span lang="en">A star on GitHub costs nothing and helps other GoXLR owners find the project. You need a free GitHub account; click the ★ Star button at the top of the project page.</span><span lang="fr">Une étoile sur GitHub ne coûte rien et aide d'autres possesseurs de GoXLR à trouver le projet. Il faut un compte GitHub gratuit ; clique sur le bouton ★ Star en haut de la page du projet.</span></p>
+      <a class="star-big" href="https://github.com/powange/goxlr-discord-sync"><span aria-hidden="true">★</span> <span lang="en">Star on GitHub</span><span lang="fr">Mettre une étoile sur GitHub</span> <span class="js-stars"></span></a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <span><span lang="en">Free and open source, MIT licence. Not affiliated with TC-Helicon or Discord; GoXLR and Discord are trademarks of their owners.</span><span lang="fr">Gratuit et open source, licence MIT. Sans lien avec TC-Helicon ni Discord ; GoXLR et Discord sont des marques de leurs propriétaires.</span></span>
+    <nav>
+      <a href="https://github.com/powange/goxlr-discord-sync"><span lang="en">Source code</span><span lang="fr">Code source</span></a>
+      <a href="https://github.com/powange/goxlr-discord-sync/releases"><span lang="en">All versions</span><span lang="fr">Toutes les versions</span></a>
+      <a href="https://github.com/powange/goxlr-discord-sync#privacy-policy"><span lang="en">Privacy</span><span lang="fr">Confidentialité</span></a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function setLang(lang, remember) {
+    root.dataset.lang = lang;
+    root.lang = lang;
+    document.querySelectorAll("[data-set-lang]").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.setLang === lang));
+    });
+    if (remember) { try { localStorage.setItem("lang", lang); } catch (e) {} }
+  }
+  var saved = null;
+  try { saved = localStorage.getItem("lang"); } catch (e) {}
+  var browser = (navigator.language || "en").toLowerCase().indexOf("fr") === 0 ? "fr" : "en";
+  var asked = new URLSearchParams(location.search).get("lang");
+  if (asked === "fr" || asked === "en") setLang(asked, false);
+  else setLang(saved === "fr" || saved === "en" ? saved : browser, false);
+  document.querySelectorAll("[data-set-lang]").forEach(function (b) {
+    b.addEventListener("click", function () { setLang(b.dataset.setLang, true); });
+  });
+
+  // Star count, shown next to the star buttons.
+  fetch("https://api.github.com/repos/powange/goxlr-discord-sync")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (repo) {
+      if (!repo || typeof repo.stargazers_count !== "number") return;
+      document.querySelectorAll(".js-stars").forEach(function (el) { el.textContent = repo.stargazers_count; });
+    })
+    .catch(function () {});
+
+  // Version and size of the latest release (the page works without it).
+  fetch("https://api.github.com/repos/powange/goxlr-discord-sync/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (release) {
+      if (!release || !release.tag_name) return;
+      var setup = (release.assets || []).filter(function (a) { return a.name === "GoXLR_Setup.exe"; })[0];
+      var size = setup ? " · " + (setup.size / 1048576).toFixed(1) + " MB" : "";
+      document.querySelectorAll(".js-version").forEach(function (el) {
+        el.textContent = "v" + release.tag_name.replace(/^v/, "") + size.replace("MB", el.closest("[lang]").lang === "fr" ? "Mo" : "MB");
+      });
+    })
+    .catch(function () {});
+})();
+</script>
+</body>
+</html>

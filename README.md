@@ -2,6 +2,8 @@
 
 Mirror your GoXLR mute controls to Discord through Discord's local RPC API.
 
+**👉 [Website, download and setup guide](https://powange.github.io/goxlr-discord-sync/)** (English / Français)
+
 - Press the **Cough button** → Discord **mutes** your microphone
 - Mute the **Chat channel** fader → Discord **deafens** you (you no longer hear others)
 - Optional **two-way sync**: mute or deafen in Discord → the GoXLR follows (LEDs included)
