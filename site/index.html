@@ -378,7 +378,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 16px; }
   });
 
   // Star count, shown next to the star buttons.
-  fetch("https://api.github.com/repos/powange/goxlr-discord-sync")
+  fetch("https://api.github.com/repos/powange/goxlr-discord-sync", { cache: "no-cache" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (repo) {
       if (!repo || typeof repo.stargazers_count !== "number") return;
@@ -387,7 +387,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 16px; }
     .catch(function () {});
 
   // Version and size of the latest release (the page works without it).
-  fetch("https://api.github.com/repos/powange/goxlr-discord-sync/releases/latest")
+  fetch("https://api.github.com/repos/powange/goxlr-discord-sync/releases/latest", { cache: "no-cache" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (release) {
       if (!release || !release.tag_name) return;
