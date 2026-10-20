@@ -146,28 +146,14 @@ ui/                     # settings window (HTML, CSS, JavaScript)
 
 ## 🔏 Code signing
 
-The executables are not signed yet, so Windows SmartScreen may warn on the first download. The release workflow (`.github/workflows/build-release.yml`) signs them with SignPath as soon as it is configured; until then releases are built unsigned.
+The Windows executables are not signed with a code signing certificate, so on a **first** download Windows SmartScreen may show *Windows protected your PC*: click **More info › Run anyway**. Updates installed from the app are not affected.
 
-1. Apply at https://signpath.org (SignPath Foundation, open-source program) with this repository.
-2. In SignPath, create the project, paste `signing/signpath-artifact-configuration.xml` as its artifact configuration, and add GitHub as trusted build system for this repository.
-3. In GitHub, **Settings › Secrets and variables › Actions**:
-   - secret `SIGNPATH_API_TOKEN`;
-   - variables `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_POLICY_SLUG`.
+How you can trust a download:
 
-The application is signed before the setup bundles it, the setup is signed next, the workflow checks both signatures, and the updater signature and `SHA256SUMS.txt` are computed from the signed files.
+- `SHA256SUMS.txt` in each release lists the checksum of every file (`certutil -hashfile GoXLR_Setup.exe SHA256`);
+- updates are only installed when they are signed with the project's update key, whose public part is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`); the private key and its password are the secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep a backup of both: without them, installed versions can no longer update themselves.
 
-**Updater signature**: updates are only installed when they are signed with the key whose public part is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The private key and its password are the secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep a backup of both: without them, installed versions can no longer update themselves.
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-Signed releases start with the first version published after the project is accepted by the SignPath Foundation; earlier releases are unsigned.
-
-- Committers and reviewers: [powange](https://github.com/powange) ([contributors](https://github.com/powange/goxlr-discord-sync/graphs/contributors))
-- Approvers: [powange](https://github.com/powange) (repository owner)
-
-Only executables built by the GitHub Actions workflow of this repository from tagged sources are signed, and every signing request is approved by hand. Pull requests from other contributors are reviewed before they are merged.
+The release workflow can sign with [SignPath](https://about.signpath.io/) (application, then the setup that bundles it; the update signature and checksums are computed afterwards). It stays inactive until the secret `SIGNPATH_API_TOKEN` and the variables `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_POLICY_SLUG` exist; the artifact configuration to use is `signing/signpath-artifact-configuration.xml`.
 
 ## Privacy policy
 

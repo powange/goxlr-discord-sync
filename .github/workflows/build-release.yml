@@ -306,6 +306,6 @@ jobs:
           Requirements: GoXLR Utility and the Discord desktop app.
           Verify the download with `SHA256SUMS.txt`.
 
-          ## Code signing policy
-          Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/) (signed releases start once the project is accepted).
-          See the [code signing policy](https://github.com/powange/goxlr-discord-sync#code-signing-policy) and the [privacy policy](https://github.com/powange/goxlr-discord-sync#privacy-policy).
+          ## Integrity
+          The Windows setup is not code signed: on a first download, SmartScreen may ask you to click **More info › Run anyway**. Updates installed from the app are checked against the project's update key.
+          See also the [privacy policy](https://github.com/powange/goxlr-discord-sync#privacy-policy).
